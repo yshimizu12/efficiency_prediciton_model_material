@@ -135,15 +135,15 @@ class Regression(nn.Module):
         else:
             raise NotImplementedError(f'activation type "{activation_type}" is unknown')
 
-    def forward(self, image, current, pm_material, pm_temp): # current: 2-dim
+    def forward(self, image, parameters, pm_material): # current: 2-dim
         ## image
         x = self.model_ft(image)
         x = self.linear1(x)
         x = self.bn1(x)
         x = self.activation(x)
-        x = torch.cat([x,current], axis=1)
+        x = torch.cat([x,parameters], axis=1)
         # x = torch.cat([x,speed], axis=1)
-        x = torch.cat([x,pm_temp], axis=1)
+        # x = torch.cat([x,pm_temp], axis=1)
         x = torch.cat([x,pm_material], axis=1)
         for i, (f, bn) in enumerate(zip(self.linear_list1, self.batch_norm_list1)):
             x1 = f(x1) if i > 0 else f(x)
