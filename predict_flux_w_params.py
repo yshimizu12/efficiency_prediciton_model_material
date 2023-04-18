@@ -63,8 +63,6 @@ params_data = {
     'data_image': 'dataset_image',
     'data_PM': 'dataset_material_PM_dummies',
 }
-locals().update(params_data)
-
 vit_list = [
     'vit_b_16',
     'vit_b_32',
@@ -162,12 +160,17 @@ class Regression(nn.Module):
 class ImageDataset(Dataset):
     def __init__(self):
         super().__init__()
-        path_data = Path(path_data)
+        path_data = Path(params_data['path_data'])
+        folder_image = params_data['folder_image']
+        fnames = params_data['fnames']
+        data_number = params_data['data_number']
+        data_image = params_data['data_image']
+        data_PM = params_data['data_PM']
         ## image
         image_size = params_data['image_size']
         self.paths = []
         for fname in fnames:
-            df_image = pd.read_csv(path_data/f"dataset_image_{fname}.csv")
+            df_image = pd.read_csv(path_data/f"{data_image}_{fname}.csv")
             path = [path_data/fname/folder_image/p for p in df_image.values.flatten()]
             self.paths.extend(path)
         # self.paths = [p for fname in fnames for p in folder_image.glob(f'{fname}/images/*.{ext}')]
