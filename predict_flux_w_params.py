@@ -1,4 +1,7 @@
-# import os
+#%%
+import os
+os.environ['TORCH_HOME'] = '/sqfs2/cmc/1/work/G15489/v60716/.cache/torch'
+
 # import json
 import csv
 import math
@@ -27,19 +30,9 @@ from torchvision import models, transforms
 
 import prediction_model
 
-params_data = {
-    'ext': 'jpg',
-    'folder_image': './50_data/ripple/',
-    'folder_label': './50_data/ripple_3topol/',
-    'fnames': ['2D', 'V', 'nabla'],
-    # 'image_size': 256,
-    'data_current': 'idiq_all_scaled_train.csv',
-    'data_speed': 'speed_all_scaled_train.csv',
-    # 'data_ripple': 'torque_ripple_all_scaled_train.csv',
-    'data_joule': 'joule_all_scaled_train.csv',
-    'data_hysteresis': 'hysteresis_all_scaled_train.csv',
-    'Ia_max': 134*3**0.5,
-}
+#%%
+def result_name(modelname):
+    return f'pred_flux_{modelname}_w_params'
 
 params = {
     'batch_size': 128,
@@ -47,16 +40,30 @@ params = {
     # 'epochs_optuna': 20,
     'epochs_check': 100,
     'save_every': 100,
-    'hidden_dim_init': 8,
-    'num_hidden_dims': 2,
-    'hidden_dim_out': 50,
-    'hidden_dim_other': 10,
+    # 'hidden_dim_init': 8,
+    # 'num_hidden_dims': 2,
+    # 'hidden_dim_out': 50,
+    # 'hidden_dim_other': 10,
     # 'num_hidden_dims2': 2,
-    'hidden_dim_out2': 50,
-    'hidden_dim_other2': 12,
+    # 'hidden_dim_out2': 50,
+    # 'hidden_dim_other2': 12,
     'learning_rate': 0.004,
-    'times': 10,
+    'times': 1,
 }
+
+#==============================
+params_data = {
+    # 'ext': 'png',
+    'path_data': './_data/data_bmwi3/',
+    'folder_image': 'geometry/result/image/',
+    'fnames': ['2D', '2U', 'V'],
+    # 'image_size': 256,
+    'data_number': 'dataset_number_scaled',
+    'data_class': 'dataset_class',
+    'data_image': 'dataset_image',
+    'data_PM': 'dataset_material_PM_dummies',
+}
+locals().update(params_data)
 
 vit_list = [
     'vit_b_16',
@@ -66,14 +73,14 @@ vit_list = [
     'vit_h_14',
 ]
 
-def result_name(modelname):
-    return f'ironloss_2DVNabla_{modelname}_w_params'
-
+#%%
 class Regression(nn.Module):
     def __init__(
             self,
             current_dim=2,
             speed_dim=1,
+            pm_temp_dim=1,
+            pm_material_dim=10,
             hidden_dim_init=6,
             num_hidden_dims=3,
             hidden_dim_out=50,
@@ -96,12 +103,12 @@ class Regression(nn.Module):
         num_ftrs = 1000
         self.linear1 = nn.Linear(num_ftrs, hidden_dim_init)
         self.bn1 = nn.BatchNorm1d(hidden_dim_init)
-        ## joule
+        ## Psi_d
         hidden_dims = [hidden_dim_other]*num_hidden_dims
         hidden_dims[-1] = hidden_dim_out
         linear_list1 = []
         batch_norm_list1 = []
-        hidden_dim_before = hidden_dim_init+current_dim+speed_dim
+        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim#+speed_dim
         for hidden_dim in hidden_dims:
             linear_list1.append(nn.Linear(hidden_dim_before, hidden_dim))
             batch_norm_list1.append(nn.BatchNorm1d(hidden_dim))
@@ -109,12 +116,12 @@ class Regression(nn.Module):
         self.linear_list1 = nn.ModuleList(linear_list1)
         self.batch_norm_list1 = nn.ModuleList(batch_norm_list1)
         self.out1 = nn.Linear(hidden_dim_before, output_dim1)
-        ## hysteresis
+        ## Psi_q
         hidden_dims2 = [hidden_dim_other2]*num_hidden_dims
         hidden_dims2[-1] = hidden_dim_out2
         linear_list2 = []
         batch_norm_list2 = []
-        hidden_dim_before = hidden_dim_init+current_dim+speed_dim
+        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim#+speed_dim
         for hidden_dim in hidden_dims2:
             linear_list2.append(nn.Linear(hidden_dim_before, hidden_dim))
             batch_norm_list2.append(nn.BatchNorm1d(hidden_dim))
@@ -130,14 +137,16 @@ class Regression(nn.Module):
         else:
             raise NotImplementedError(f'activation type "{activation_type}" is unknown')
 
-    def forward(self, image, current, speed): # current: 2-dim
+    def forward(self, image, current, pm_material, pm_temp): # current: 2-dim
         ## image
         x = self.model_ft(image)
         x = self.linear1(x)
         x = self.bn1(x)
         x = self.activation(x)
         x = torch.cat([x,current], axis=1)
-        x = torch.cat([x,speed], axis=1)
+        # x = torch.cat([x,speed], axis=1)
+        x = torch.cat([x,pm_temp], axis=1)
+        x = torch.cat([x,pm_material], axis=1)
         for i, (f, bn) in enumerate(zip(self.linear_list1, self.batch_norm_list1)):
             x1 = f(x1) if i > 0 else f(x)
             x1 = bn(x1)
@@ -148,62 +157,71 @@ class Regression(nn.Module):
             x2 = self.activation(x2)
         y1 = self.out1(x1)
         y2 = self.out2(x2)
-        return y1, y2
+        return y1, y2 # Psi_d, Psi_q
 
 class ImageDataset(Dataset):
     def __init__(self):
         super().__init__()
+        path_data = Path(path_data)
         ## image
-        ext = params_data['ext']
-        folder_image = Path(params_data['folder_image'])
-        folder_label = Path(params_data['folder_label'])
-        image_size = params_data['image_size'] if torch.cuda.is_available() else 64
-        fnames = params_data['fnames']
-        self.paths = [p for fname in fnames for p in folder_image.glob(f'{fname}/images/*.{ext}')]
+        image_size = params_data['image_size']
+        self.paths = []
+        for fname in fnames:
+            df_image = pd.read_csv(path_data/f"dataset_image_{fname}.csv")
+            path = [path_data/fname/folder_image/p for p in df_image.values.flatten()]
+            self.paths.extend(path)
+        # self.paths = [p for fname in fnames for p in folder_image.glob(f'{fname}/images/*.{ext}')]
         assert len(self.paths) > 0, f'No images were found in {folder_image} for training'
         # num_channels = 3
         self.transform = transforms.Compose([
             transforms.Resize(image_size),
             transforms.ToTensor(),
         ])
-        ## label
-        data_names = [
-            params_data['data_current'],
-            params_data['data_speed'],
-            params_data['data_joule'],
-            params_data['data_hysteresis'],
-        ]
-        data_cols = [
-            ['id','iq'],
-            ['N'],
-            ['joule'],
-            ['hysteresis'],
-        ]
-        self.labels = []
-        for data_name, data_col in zip(data_names, data_cols):
-            df = pd.DataFrame()
-            for fname in fnames:
-                df = pd.concat([df,
-                                pd.read_csv(folder_label / fname / data_name,
-                                            index_col=0)])
-            df.index = range(df.shape[0])
-            self.labels.append(df[data_col])
+        ## label_num
+        data_info = {
+            'current': ['id','iq'],
+            'pm_temp': 'PM_TEMP',
+            'flux': ['Psi_d','Psi_q'],
+        }
+        self.labels = {}
+        for key in data_info.keys():
+            self.labels[key] = pd.DataFrame()
+        for fname in fnames:
+            df = pd.read_csv(path_data/f'{data_number}_{fname}.csv')
+            for key, val in data_info.items():
+                self.labels[key] = pd.concat((self.labels[key], df[val]), axis=0)
+        ## label_pm_material
+        key = 'pm_material'
+        self.labels[key] = pd.DataFrame()
+        for fname in fnames:
+            self.labels[key] = pd.concat((
+                self.labels[key], pd.read_csv(path_data/f'{data_PM}_{fname}.csv')
+            ), axis=0)
+        for key in self.labels.keys():
+            self.labels[key] = self.labels[key].values
     def __len__(self):
         return len(self.paths)
     def __getitem__(self, index):
         path = self.paths[index]
         img = Image.open(path)
-        current = self.labels[0].iloc[index].values
-        speed = self.labels[1].iloc[index].values
-        joule = self.labels[2].iloc[index].values
-        hysteresis = self.labels[3].iloc[index].values
+        current = self.labels['current'][index]
+        # speed = self.labels['speed'][index]
+        pm_temp = self.labels['pm_temp'][index]
+        # x2 = np.concatenate([current, speed, pm_temp])
+        x2 = np.concatenate([current, pm_temp])
+        pm_material = self.labels['pm_material'][index]
+        psi_d, psi_q = self.labels['flux'][index]
+        # hysteresis = self.labels['hysteresis'][index]
+        # joule = self.labels['joule'][index]
 
         return (
             self.transform(img),
-            torch.tensor(current, dtype=torch.float32),
-            torch.tensor(speed, dtype=torch.float32),
-            torch.tensor(joule, dtype=torch.float32),
-            torch.tensor(hysteresis, dtype=torch.float32),
+            torch.tensor(x2, dtype=torch.float32),
+            torch.tensor(pm_material, dtype=torch.float32),
+            torch.tensor(psi_d, dtype=torch.float32),
+            torch.tensor(psi_q, dtype=torch.float32),
+            # torch.tensor(hysteresis, dtype=torch.float32),
+            # torch.tensor(joule, dtype=torch.float32),
         )
 
 def set_data_src(NUM_CORES, batch_size, world_size, rank, is_ddp):
