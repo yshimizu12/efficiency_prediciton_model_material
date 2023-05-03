@@ -24,7 +24,6 @@ from torch.utils.data.distributed import DistributedSampler
 # import torch.multiprocessing as mp
 # import torchvision
 from torchvision import models, transforms
-import optuna
 # import optuna
 # from torchsummary import summary
 # from sklearn.metrics import accuracy_score
@@ -33,15 +32,14 @@ import prediction_model
 
 #%%
 def result_name(modelname):
-    return f'pred_flux_{modelname}_w_optuna'
+    return f'pred_flux_{modelname}_w_params'
 
 params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
-    'epochs_optuna': 3,#20,
-    'optuna_n_trials': 10,#100,
-    'epochs_check': 10,#100,
-    'save_every': 10,#100,
+    # 'epochs_optuna': 20,
+    'epochs_check': 100,
+    'save_every': 100,
     # 'hidden_dim_init': 8,
     # 'num_hidden_dims': 2,
     # 'hidden_dim_out': 50,
@@ -49,7 +47,7 @@ params = {
     # 'num_hidden_dims2': 2,
     # 'hidden_dim_out2': 50,
     # 'hidden_dim_other2': 12,
-    # 'learning_rate': 0.004,
+    'learning_rate': 0.004,
     'times': 1,
 }
 
@@ -270,12 +268,12 @@ def set_data_src(NUM_CORES, batch_size, world_size, rank, is_ddp):
 
 def get_optimizer(trial, model, optimizer_name='Adam'):
     if optimizer_name=='Adam':
-        lr = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
-        # weight_decay = trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True)
+        lr = trial.suggest_loguniform('learning_rate', 1e-5, 1e-1)
+        # weight_decay = trial.suggest_loguniform('weight_decay', 1e-10, 1e-3)
         optimizer = optimizers.Adam(model.parameters(), lr=lr)#, weight_decay=weight_decay)
     elif optimizer_name=='MomentumSGD':
-        lr = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
-        weight_decay = trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True)
+        lr = trial.suggest_loguniform('learning_rate', 1e-5, 1e-1)
+        weight_decay = trial.suggest_loguniform('weight_decay', 1e-10, 1e-3)
         optimizer = optimizers.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
     elif optimizer_name=='rmsprop':
         optimizer = optimizers.RMSprop(model.parameters())
@@ -284,15 +282,10 @@ def get_optimizer(trial, model, optimizer_name='Adam'):
     return optimizer
 
 def compute_loss(label, pred):
-    # print(pred.shape, label.shape)
-    # print(pred.float(), label.float())
-    # print(pred.float().shape, label.float().shape)
     return nn.MSELoss()(pred.float(), label.float())
 def train_step(x1, x2, x3, t1, t2, model, optimizer):
     model.train()
     preds = model(x1, x2, x3)
-    t1 = t1.unsqueeze(1)
-    t2 = t2.unsqueeze(1)
     loss1 = compute_loss(t1, preds[0])
     loss2 = compute_loss(t2, preds[1])
     optimizer.zero_grad()
@@ -303,8 +296,6 @@ def train_step(x1, x2, x3, t1, t2, model, optimizer):
 def valid_step(x1, x2, x3, t1, t2, model):
     model.eval()
     preds = model(x1, x2, x3)
-    t1 = t1.unsqueeze(1)
-    t2 = t2.unsqueeze(1)
     loss1 = compute_loss(t1, preds[0])
     loss2 = compute_loss(t2, preds[1])
     return (loss1, loss2), preds
@@ -319,48 +310,6 @@ def main(modelname, typename, pathmodel=None):
     is_ddp = world_size > 1
     rank = 0
 
-    def objective(trial):
-        args = {
-            'hidden_dim_init': trial.suggest_int('hidden_dim_init',4,10,2),
-            'num_hidden_dims': trial.suggest_int('num_hidden_dims',2,5,1),
-            'hidden_dim1': trial.suggest_int('hidden_dim1',2,18,4),
-            'hidden_dim2': trial.suggest_int('hidden_dim2',10,100,10),
-            'hidden_dim_other': trial.suggest_int('hidden_dim_other',4,20,4),
-            'hidden_dim_other2': trial.suggest_int('hidden_dim_other2',4,20,4),
-            'hidden_dim_out': trial.suggest_int('hidden_dim_out',20,60,10),
-            'hidden_dim_out2': trial.suggest_int('hidden_dim_out2',20,60,10),
-            # 'learning_type': trial.suggest_categorical('learning_type',['transfer_learning','fine_tuning','normal']),
-            # 'activation_type': trial.suggest_categorical('activation_type',['ReLU','ELU']),
-            # 'optimizer': trial.suggest_categorical('optimizer',['Adam','MomentumSGD','rmsprop']),
-            # 'batch_size': trial.suggest_categorical('batch_size',[64,128,256,512]),
-        }
-
-        train_loader, valid_loader = set_data_src(NUM_CORES, params['batch_size'], world_size, rank, is_ddp)
-        model = Regression(**args).to(device)
-        # optimizer = get_optimizer(trial, model, optimizer_name=args['optimizer'])
-        optimizer = get_optimizer(trial, model, optimizer_name='Adam')
-
-        epochs = params['epochs_optuna']
-        for epoch in range(epochs):
-            valid_loss1 = 0.
-            valid_loss2 = 0.
-            for (x1, x2, x3, t1, t2) in train_loader:
-                x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-                train_step(x1, x2, x3, t1, t2, model, optimizer)
-            if epoch+1 == epochs:
-                for (x1, x2, x3, t1, t2) in valid_loader:
-                    x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-                    loss, _ = valid_step(x1, x2, x3, t1, t2, model)
-                    valid_loss1 += loss[0].item()
-                    valid_loss2 += loss[1].item()
-                valid_loss1 /= len(valid_loader)
-                valid_loss2 /= len(valid_loader)
-
-        return valid_loss1+valid_loss2
-
-    study = optuna.create_study()
-    study.optimize(objective, n_trials=params['optuna_n_trials'])
-
     ## verify the model with best parameters
     base_dir = './'
     results_dir = 'results'
@@ -371,22 +320,14 @@ def main(modelname, typename, pathmodel=None):
     base_dir = Path(base_dir)
     (base_dir / results_dir / name).mkdir(parents=True, exist_ok=True)
 
-    def model_name(num, times=None):
-        return str(base_dir / results_dir / name / f'model_{num}_{times}.pt') if times is not None else str(base_dir / results_dir / name / f'model_{num}.pt')
-    def save_model(model, num, times=None):
-        if times is not None:
-            torch.save(model, model_name(num, times))
-        else:
-            torch.save(model, model_name(num))
-    def save_result(result, num, times=None):
-        if times is not None:
-            with open(str(base_dir / results_dir / name / f'result_{num}_{times}.csv'), 'w', encoding='Shift_jis') as f:
-                writer = csv.writer(f, lineterminator='\n')
-                writer.writerows(result)
-        else:
-            with open(str(base_dir / results_dir / name / f'result_{num}.csv'), 'w', encoding='Shift_jis') as f:
-                writer = csv.writer(f, lineterminator='\n')
-                writer.writerows(result)
+    def model_name(num, times):
+        return str(base_dir / results_dir / name / f'model_{num}_{times}.pt')
+    def save_model(model, num, times):
+        torch.save(model, model_name(num, times))
+    def save_result(result, num, times):
+        with open(str(base_dir / results_dir / name / f'result_{num}_{times}.csv'), 'w', encoding='Shift_jis') as f:
+            writer = csv.writer(f, lineterminator='\n')
+            writer.writerows(result)
     def save_best_params(best_params):
         with open(str(base_dir / results_dir / name / f'best_params.pkl'), "wb") as tf:
             pickle.dump(best_params,tf)
@@ -394,63 +335,60 @@ def main(modelname, typename, pathmodel=None):
         with open(str(base_dir / results_dir / name / f'params.pkl'), "wb") as tf:
             pickle.dump(params,tf)
 
-    train_loader, valid_loader = set_data_src(NUM_CORES, params['batch_size'], world_size, rank, is_ddp)
-    model = Regression(**study.best_params).to(device)
-    optimizer = optimizers.Adam(model.parameters(), lr=study.best_params['learning_rate'])#, weight_decay=study.best_params['weight_decay'])
-    save_best_params(study.best_params)
     save_params(params)
+    train_loader, valid_loader = set_data_src(NUM_CORES, params['batch_size'], world_size, rank, is_ddp)
 
-    print('best model start')
+    print('model start')
     epochs = params['epochs_check']
     save_every = params['save_every']
-    # for t in range(params['times']):
-    #     model = Regression(**params).to(device)
-    #     optimizer = optimizers.Adam(model.parameters(), lr=params['learning_rate'])#, weight_decay=study.best_params['weight_decay'])
+    for t in range(params['times']):
+        model = Regression(**params).to(device)
+        optimizer = optimizers.Adam(model.parameters(), lr=params['learning_rate'])#, weight_decay=study.best_params['weight_decay'])
         # save_best_params(study.best_params)
 
-        # print(f'{t}-times')
-        # np.random.seed(t)
-        # torch.manual_seed(t)
-    results = []
-    time_start = time.time()
-    for epoch in range(epochs):
-        train_loss1 = 0.
-        train_loss2 = 0.
-        valid_loss1 = 0.
-        valid_loss2 = 0.
-        for (x1, x2, x3, t1, t2) in train_loader:
-            x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-            loss, _ = train_step(x1, x2, x3, t1, t2, model, optimizer)
-            train_loss1 += loss[0].item()
-            train_loss2 += loss[1].item()
-        train_loss1 /= len(train_loader)
-        train_loss2 /= len(train_loader)
-        for (x1, x2, x3, t1, t2) in valid_loader:
-            x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-            loss, _ = valid_step(x1, x2, x3, t1, t2, model)
-            valid_loss1 += loss[0].item()
-            valid_loss2 += loss[1].item()
-        valid_loss1 /= len(valid_loader)
-        valid_loss2 /= len(valid_loader)
-        elapsed_time = time.time()-time_start
-        print('Epoch: {}, Train rmse: {}, Valid rmse: {}, Elapsed time: {:.1f}sec'.format(
-            epoch+1,
-            train_loss1,
-            # train_loss2,
-            valid_loss1,
-            # valid_loss2,
-            elapsed_time
-        ))
-        results.append([
-            epoch+1,
-            train_loss1,
-            train_loss2,
-            valid_loss1,
-            valid_loss2,
-            elapsed_time
-        ])
-        if (epoch+1) % save_every == 0: save_model(model.state_dict(), epoch+1)
-    save_result(results, epoch+1)
+        print(f'{t}-times')
+        np.random.seed(t)
+        torch.manual_seed(t)
+        results = []
+        time_start = time.time()
+        for epoch in range(epochs):
+            train_loss1 = 0.
+            train_loss2 = 0.
+            valid_loss1 = 0.
+            valid_loss2 = 0.
+            for (x1, x2, x3, t1, t2) in train_loader:
+                x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
+                loss, _ = train_step(x1, x2, x3, t1, t2, model, optimizer)
+                train_loss1 += loss[0].item()
+                train_loss2 += loss[1].item()
+            train_loss1 /= len(train_loader)
+            train_loss2 /= len(train_loader)
+            for (x1, x2, x3, t1, t2) in valid_loader:
+                x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
+                loss, _ = valid_step(x1, x2, x3, t1, t2, model)
+                valid_loss1 += loss[0].item()
+                valid_loss2 += loss[1].item()
+            valid_loss1 /= len(valid_loader)
+            valid_loss2 /= len(valid_loader)
+            elapsed_time = time.time()-time_start
+            print('Epoch: {}, Train rmse: {}, Valid rmse: {}, Elapsed time: {:.1f}sec'.format(
+                epoch+1,
+                train_loss1,
+                # train_loss2,
+                valid_loss1,
+                # valid_loss2,
+                elapsed_time
+            ))
+            results.append([
+                epoch+1,
+                train_loss1,
+                train_loss2,
+                valid_loss1,
+                valid_loss2,
+                elapsed_time
+            ])
+            if (epoch+1) % save_every == 0: save_model(model.state_dict(), epoch+1, t)
+        save_result(results, epoch+1, t)
 
 if __name__=="__main__":
     import argparse
