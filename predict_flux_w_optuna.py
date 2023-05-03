@@ -58,7 +58,7 @@ params_data = {
     # 'ext': 'png',
     'path_data': './_data/data_bmwi3/',
     'folder_image': 'geometry/result/image/',
-    'fnames': ['2D', '2U', 'V'],
+    'fnames': ['2D', '2U', 'V', 'Nabla'],
     # 'image_size': 256,
     'data_number': 'dataset_number_scaled',
     'data_class': 'dataset_class',
