@@ -33,15 +33,15 @@ import prediction_model
 
 #%%
 def result_name(modelname):
-    return f'pred_flux_{modelname}_w_optuna'
+    return f'pred_ironloss_{modelname}_w_optuna'
 
 params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
-    'epochs_optuna': 20,
-    'optuna_n_trials': 100,
-    'epochs_check': 100,
-    'save_every': 100,
+    'epochs_optuna': 2,
+    'optuna_n_trials': 10,
+    'epochs_check': 10,
+    'save_every': 10,
     # 'hidden_dim_init': 8,
     # 'num_hidden_dims': 2,
     # 'hidden_dim_out': 50,
@@ -88,8 +88,11 @@ class Regression(nn.Module):
             # num_hidden_dims2=5,
             hidden_dim_out2=50,
             hidden_dim_other2=35,
+            hidden_dim_out3=50,
+            hidden_dim_other3=35,
             output_dim1=1,
             output_dim2=1,
+            output_dim3=1,
             # weight_id=1.0,
             # weight_iq=1.0,
             # weight_speed=1.0,
@@ -103,12 +106,12 @@ class Regression(nn.Module):
         num_ftrs = 1000
         self.linear1 = nn.Linear(num_ftrs, hidden_dim_init)
         self.bn1 = nn.BatchNorm1d(hidden_dim_init)
-        ## Psi_d
+        ## hysteresis
         hidden_dims = [hidden_dim_other]*num_hidden_dims
         hidden_dims[-1] = hidden_dim_out
         linear_list1 = []
         batch_norm_list1 = []
-        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim#+speed_dim
+        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim+speed_dim
         for hidden_dim in hidden_dims:
             linear_list1.append(nn.Linear(hidden_dim_before, hidden_dim))
             batch_norm_list1.append(nn.BatchNorm1d(hidden_dim))
@@ -116,12 +119,12 @@ class Regression(nn.Module):
         self.linear_list1 = nn.ModuleList(linear_list1)
         self.batch_norm_list1 = nn.ModuleList(batch_norm_list1)
         self.out1 = nn.Linear(hidden_dim_before, output_dim1)
-        ## Psi_q
+        ## joule
         hidden_dims2 = [hidden_dim_other2]*num_hidden_dims
         hidden_dims2[-1] = hidden_dim_out2
         linear_list2 = []
         batch_norm_list2 = []
-        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim#+speed_dim
+        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim+speed_dim
         for hidden_dim in hidden_dims2:
             linear_list2.append(nn.Linear(hidden_dim_before, hidden_dim))
             batch_norm_list2.append(nn.BatchNorm1d(hidden_dim))
@@ -129,6 +132,19 @@ class Regression(nn.Module):
         self.linear_list2 = nn.ModuleList(linear_list2)
         self.batch_norm_list2 = nn.ModuleList(batch_norm_list2)
         self.out2 = nn.Linear(hidden_dim_before, output_dim2)
+        ## pm_joule
+        hidden_dims3 = [hidden_dim_other3]*num_hidden_dims
+        hidden_dims3[-1] = hidden_dim_out3
+        linear_list3 = []
+        batch_norm_list3 = []
+        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim+speed_dim
+        for hidden_dim in hidden_dims3:
+            linear_list3.append(nn.Linear(hidden_dim_before, hidden_dim))
+            batch_norm_list3.append(nn.BatchNorm1d(hidden_dim))
+            hidden_dim_before = hidden_dim
+        self.linear_list3 = nn.ModuleList(linear_list3)
+        self.batch_norm_list3 = nn.ModuleList(batch_norm_list3)
+        self.out3 = nn.Linear(hidden_dim_before, output_dim3)
         ## activation
         if activation_type=='ReLU':
             self.activation = F.relu
@@ -155,9 +171,15 @@ class Regression(nn.Module):
             x2 = f(x2) if i > 0 else f(x)
             x2 = bn(x2)
             x2 = self.activation(x2)
+        for i, (f, bn) in enumerate(zip(self.linear_list3, self.batch_norm_list3)):
+            x3 = f(x3) if i > 0 else f(x)
+            x3 = bn(x3)
+            x3 = self.activation(x3)
         y1 = self.out1(x1)
         y2 = self.out2(x2)
-        return y1, y2 # Psi_d, Psi_q
+        y3 = self.out3(x3)
+        return y1, y2, y3 # hysteresis, joule, pm_joule
+
 
 class ImageDataset(Dataset):
     def __init__(self):
@@ -186,7 +208,9 @@ class ImageDataset(Dataset):
         data_info = {
             'current': ['id','iq'],
             'pm_temp': 'PM_TEMP',
-            'flux': ['Psi_d','Psi_q'],
+            'speed': 'RPM',
+            # 'flux': ['Psi_d','Psi_q'],
+            'ironloss': ['W_e_pm', 'W_e_core', 'W_h_core'],
         }
         self.labels = {}
         for key in data_info.keys():
@@ -210,23 +234,23 @@ class ImageDataset(Dataset):
         path = self.paths[index]
         img = Image.open(path)
         current = self.labels['current'][index]
-        # speed = self.labels['speed'][index]
+        speed = self.labels['speed'][index]
         pm_temp = self.labels['pm_temp'][index]
-        # x2 = np.concatenate([current, speed, pm_temp])
-        x2 = np.concatenate([current, pm_temp])
+        x2 = np.concatenate([current, speed, pm_temp])
+        # x2 = np.concatenate([current, pm_temp])
         pm_material = self.labels['pm_material'][index]
-        psi_d, psi_q = self.labels['flux'][index]
-        # hysteresis = self.labels['hysteresis'][index]
-        # joule = self.labels['joule'][index]
+        # psi_d, psi_q = self.labels['flux'][index]
+        pm_joule, joule, hysteresis = self.labels['ironloss'][index]
 
         return (
             self.transform(img),
             torch.tensor(x2, dtype=torch.float32),
             torch.tensor(pm_material, dtype=torch.float32),
-            torch.tensor(psi_d, dtype=torch.float32),
-            torch.tensor(psi_q, dtype=torch.float32),
-            # torch.tensor(hysteresis, dtype=torch.float32),
-            # torch.tensor(joule, dtype=torch.float32),
+            # torch.tensor(psi_d, dtype=torch.float32),
+            # torch.tensor(psi_q, dtype=torch.float32),
+            torch.tensor(hysteresis, dtype=torch.float32),
+            torch.tensor(joule, dtype=torch.float32),
+            torch.tensor(pm_joule, dtype=torch.float32),
         )
 
 def set_data_src(NUM_CORES, batch_size, world_size, rank, is_ddp):
@@ -284,30 +308,31 @@ def get_optimizer(trial, model, optimizer_name='Adam'):
     return optimizer
 
 def compute_loss(label, pred):
-    # print(pred.shape, label.shape)
-    # print(pred.float(), label.float())
-    # print(pred.float().shape, label.float().shape)
     return nn.MSELoss()(pred.float(), label.float())
-def train_step(x1, x2, x3, t1, t2, model, optimizer):
+def train_step(x1, x2, x3, t1, t2, t3, model, optimizer):
     model.train()
     preds = model(x1, x2, x3)
     t1 = t1.unsqueeze(1)
     t2 = t2.unsqueeze(1)
+    t3 = t3.unsqueeze(1)
     loss1 = compute_loss(t1, preds[0])
     loss2 = compute_loss(t2, preds[1])
+    loss3 = compute_loss(t3, preds[2])
     optimizer.zero_grad()
-    loss = loss1 + loss2
+    loss = loss1 + loss2 + loss3
     loss.backward()
     optimizer.step()
-    return (loss1, loss2), preds
-def valid_step(x1, x2, x3, t1, t2, model):
+    return (loss1, loss2, loss3), preds
+def valid_step(x1, x2, x3, t1, t2, t3, model):
     model.eval()
     preds = model(x1, x2, x3)
     t1 = t1.unsqueeze(1)
     t2 = t2.unsqueeze(1)
+    t3 = t3.unsqueeze(1)
     loss1 = compute_loss(t1, preds[0])
     loss2 = compute_loss(t2, preds[1])
-    return (loss1, loss2), preds
+    loss3 = compute_loss(t3, preds[2])
+    return (loss1, loss2, loss3), preds
 
 def main(modelname, typename, pathmodel=None):
     params['modelname'] = modelname
@@ -323,12 +348,14 @@ def main(modelname, typename, pathmodel=None):
         args = {
             'hidden_dim_init': trial.suggest_int('hidden_dim_init',4,10,2),
             'num_hidden_dims': trial.suggest_int('num_hidden_dims',2,5,1),
-            # 'hidden_dim1': trial.suggest_int('hidden_dim1',2,18,4),
+            # 'hidden_dim1': trial.suggest_int('hidden_dim1',10,100,10),
             # 'hidden_dim2': trial.suggest_int('hidden_dim2',10,100,10),
             'hidden_dim_other': trial.suggest_int('hidden_dim_other',4,20,4),
             'hidden_dim_other2': trial.suggest_int('hidden_dim_other2',4,20,4),
+            'hidden_dim_other3': trial.suggest_int('hidden_dim_other3',4,20,4),
             'hidden_dim_out': trial.suggest_int('hidden_dim_out',20,60,10),
             'hidden_dim_out2': trial.suggest_int('hidden_dim_out2',20,60,10),
+            'hidden_dim_out3': trial.suggest_int('hidden_dim_out3',20,60,10),
             # 'learning_type': trial.suggest_categorical('learning_type',['transfer_learning','fine_tuning','normal']),
             # 'activation_type': trial.suggest_categorical('activation_type',['ReLU','ELU']),
             # 'optimizer': trial.suggest_categorical('optimizer',['Adam','MomentumSGD','rmsprop']),
@@ -344,19 +371,22 @@ def main(modelname, typename, pathmodel=None):
         for epoch in range(epochs):
             valid_loss1 = 0.
             valid_loss2 = 0.
-            for (x1, x2, x3, t1, t2) in train_loader:
-                x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-                train_step(x1, x2, x3, t1, t2, model, optimizer)
+            valid_loss3 = 0.
+            for (x1, x2, x3, t1, t2, t3) in train_loader:
+                x1, x2, x3, t1, t2, t3 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device), t3.to(device)
+                train_step(x1, x2, x3, t1, t2, t3, model, optimizer)
             if epoch+1 == epochs:
-                for (x1, x2, x3, t1, t2) in valid_loader:
-                    x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-                    loss, _ = valid_step(x1, x2, x3, t1, t2, model)
+                for (x1, x2, x3, t1, t2, t3) in valid_loader:
+                    x1, x2, x3, t1, t2, t3 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device), t3.to(device)
+                    loss, _ = valid_step(x1, x2, x3, t1, t2, t3, model)
                     valid_loss1 += loss[0].item()
                     valid_loss2 += loss[1].item()
+                    valid_loss3 += loss[2].item()
                 valid_loss1 /= len(valid_loader)
                 valid_loss2 /= len(valid_loader)
+                valid_loss3 /= len(valid_loader)
 
-        return valid_loss1+valid_loss2
+        return valid_loss1+valid_loss2+valid_loss3
 
     study = optuna.create_study()
     study.optimize(objective, n_trials=params['optuna_n_trials'])
@@ -416,22 +446,28 @@ def main(modelname, typename, pathmodel=None):
     for epoch in range(epochs):
         train_loss1 = 0.
         train_loss2 = 0.
+        train_loss3 = 0.
         valid_loss1 = 0.
         valid_loss2 = 0.
-        for (x1, x2, x3, t1, t2) in train_loader:
-            x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-            loss, _ = train_step(x1, x2, x3, t1, t2, model, optimizer)
+        valid_loss3 = 0.
+        for (x1, x2, x3, t1, t2, t3) in train_loader:
+            x1, x2, x3, t1, t2, t3 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device), t3.to(device)
+            loss, _ = train_step(x1, x2, x3, t1, t2, t3, model, optimizer)
             train_loss1 += loss[0].item()
             train_loss2 += loss[1].item()
+            train_loss3 += loss[2].item()
         train_loss1 /= len(train_loader)
         train_loss2 /= len(train_loader)
-        for (x1, x2, x3, t1, t2) in valid_loader:
-            x1, x2, x3, t1, t2 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device)
-            loss, _ = valid_step(x1, x2, x3, t1, t2, model)
+        train_loss3 /= len(train_loader)
+        for (x1, x2, x3, t1, t2, t3) in valid_loader:
+            x1, x2, x3, t1, t2, t3 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device), t3.to(device)
+            loss, _ = valid_step(x1, x2, x3, t1, t2, t3, model)
             valid_loss1 += loss[0].item()
             valid_loss2 += loss[1].item()
+            valid_loss3 += loss[2].item()
         valid_loss1 /= len(valid_loader)
         valid_loss2 /= len(valid_loader)
+        valid_loss3 /= len(valid_loader)
         elapsed_time = time.time()-time_start
         print('Epoch: {}, Train rmse: {}, Valid rmse: {}, Elapsed time: {:.1f}sec'.format(
             epoch+1,
@@ -445,8 +481,10 @@ def main(modelname, typename, pathmodel=None):
             epoch+1,
             train_loss1,
             train_loss2,
+            train_loss3,
             valid_loss1,
             valid_loss2,
+            valid_loss3,
             elapsed_time
         ])
         if (epoch+1) % save_every == 0: save_model(model.state_dict(), epoch+1)
