@@ -38,8 +38,8 @@ def result_name(modelname):
 params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
-    'epochs_optuna': 2,
-    'optuna_n_trials': 10,
+    'epochs_optuna': 10,
+    'optuna_n_trials': 100,
     'epochs_check': 10,
     'save_every': 10,
     # 'hidden_dim_init': 8,
@@ -353,9 +353,9 @@ def main(modelname, typename, pathmodel=None):
             'hidden_dim_other': trial.suggest_int('hidden_dim_other',4,20,4),
             'hidden_dim_other2': trial.suggest_int('hidden_dim_other2',4,20,4),
             'hidden_dim_other3': trial.suggest_int('hidden_dim_other3',4,20,4),
-            'hidden_dim_out': trial.suggest_int('hidden_dim_out',20,60,10),
-            'hidden_dim_out2': trial.suggest_int('hidden_dim_out2',20,60,10),
-            'hidden_dim_out3': trial.suggest_int('hidden_dim_out3',20,60,10),
+            # 'hidden_dim_out': trial.suggest_int('hidden_dim_out',20,60,10),
+            # 'hidden_dim_out2': trial.suggest_int('hidden_dim_out2',20,60,10),
+            # 'hidden_dim_out3': trial.suggest_int('hidden_dim_out3',20,60,10),
             # 'learning_type': trial.suggest_categorical('learning_type',['transfer_learning','fine_tuning','normal']),
             # 'activation_type': trial.suggest_categorical('activation_type',['ReLU','ELU']),
             # 'optimizer': trial.suggest_categorical('optimizer',['Adam','MomentumSGD','rmsprop']),
@@ -385,6 +385,10 @@ def main(modelname, typename, pathmodel=None):
                 valid_loss1 /= len(valid_loader)
                 valid_loss2 /= len(valid_loader)
                 valid_loss3 /= len(valid_loader)
+
+        name_ = params['result_name']
+        with open(f'optuna_log_{name_}.txt', 'a') as f:
+            f.write(f"Trial: {trial.number},  Params: {trial.params}, Score: {valid_loss1+valid_loss2+valid_loss3}\n")
 
         return valid_loss1+valid_loss2+valid_loss3
 

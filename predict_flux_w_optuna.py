@@ -38,10 +38,10 @@ def result_name(modelname):
 params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
-    'epochs_optuna': 20,
+    'epochs_optuna': 10,
     'optuna_n_trials': 100,
-    'epochs_check': 100,
-    'save_every': 100,
+    'epochs_check': 10,
+    'save_every': 10,
     # 'hidden_dim_init': 8,
     # 'num_hidden_dims': 2,
     # 'hidden_dim_out': 50,
@@ -271,6 +271,7 @@ def set_data_src(NUM_CORES, batch_size, world_size, rank, is_ddp):
 def get_optimizer(trial, model, optimizer_name='Adam'):
     if optimizer_name=='Adam':
         lr = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
+        # lr = 0.0004
         # weight_decay = trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True)
         optimizer = optimizers.Adam(model.parameters(), lr=lr)#, weight_decay=weight_decay)
     elif optimizer_name=='MomentumSGD':
@@ -327,8 +328,8 @@ def main(modelname, typename, pathmodel=None):
             # 'hidden_dim2': trial.suggest_int('hidden_dim2',10,100,10),
             'hidden_dim_other': trial.suggest_int('hidden_dim_other',4,20,4),
             'hidden_dim_other2': trial.suggest_int('hidden_dim_other2',4,20,4),
-            'hidden_dim_out': trial.suggest_int('hidden_dim_out',20,60,10),
-            'hidden_dim_out2': trial.suggest_int('hidden_dim_out2',20,60,10),
+            # 'hidden_dim_out': trial.suggest_int('hidden_dim_out',20,60,10),
+            # 'hidden_dim_out2': trial.suggest_int('hidden_dim_out2',20,60,10),
             # 'learning_type': trial.suggest_categorical('learning_type',['transfer_learning','fine_tuning','normal']),
             # 'activation_type': trial.suggest_categorical('activation_type',['ReLU','ELU']),
             # 'optimizer': trial.suggest_categorical('optimizer',['Adam','MomentumSGD','rmsprop']),
@@ -355,6 +356,10 @@ def main(modelname, typename, pathmodel=None):
                     valid_loss2 += loss[1].item()
                 valid_loss1 /= len(valid_loader)
                 valid_loss2 /= len(valid_loader)
+
+        name_ = params['result_name']
+        with open(f'optuna_log_{name_}.txt', 'a') as f:
+            f.write(f"Trial: {trial.number},  Params: {trial.params}, Score: {valid_loss1+valid_loss2}\n")
 
         return valid_loss1+valid_loss2
 

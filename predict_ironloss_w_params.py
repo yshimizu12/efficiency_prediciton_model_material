@@ -38,18 +38,21 @@ params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
     # 'epochs_optuna': 20,
-    'epochs_check': 100,
-    'save_every': 100,
-    # 'hidden_dim_init': 8,
-    # 'num_hidden_dims': 2,
-    # 'hidden_dim_out': 50,
-    # 'hidden_dim_other': 10,
-    # 'num_hidden_dims2': 2,
-    # 'hidden_dim_out2': 50,
-    # 'hidden_dim_other2': 12,
-    'learning_rate': 0.004,
+    'epochs_check': 10,
+    'save_every': 10,
+    'hidden_dim_init': 8,
+    'num_hidden_dims': 2,
+    'hidden_dim_other': 16,
+    'hidden_dim_other2': 8,
+    'hidden_dim_other3': 16,
+    'learning_rate': 0.006325,
+    # 'learning_rate': 0.004,
+    'hidden_dim_out': 50,
+    'hidden_dim_out2': 50,
+    'hidden_dim_out3': 50,
     'times': 1,
 }
+
 
 #==============================
 params_data = {
