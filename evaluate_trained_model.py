@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 from tqdm import tqdm
 # import time
-# import pickle
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -37,7 +37,7 @@ params_flux = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2304181637_pred_flux_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2305062304_pred_flux_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -54,12 +54,16 @@ params_flux = {
     'learning_rate': 0.004,
     'times': 1,
 }
+dir_model = params_flux['base_dir_model']
+with open(f'{dir_model}params.pkl', "rb") as tf:
+    params_ = pickle.load(tf)
+params_flux.update(params_)
 
 params_ironloss = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2304191521_pred_ironloss_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2305062304_pred_ironloss_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -76,6 +80,10 @@ params_ironloss = {
     'learning_rate': 0.004,
     'times': 1,
 }
+dir_model = params_ironloss['base_dir_model']
+with open(f'{dir_model}params.pkl', "rb") as tf:
+    params_ = pickle.load(tf)
+params_ironloss.update(params_)
 
 params_data = {
     # 'ext': 'png',
@@ -396,16 +404,22 @@ class ImageDataset(Dataset):
 # train_loader, valid_loader = set_data_src()
 
 dataset = ImageDataset()
+n_samples = len(dataset)
+train_size = int(n_samples*0.8)
+valid_size = n_samples - train_size
+train_dataset, valid_dataset = torch.utils.data.random_split(dataset, [train_size, valid_size])
 
 #%%
 preds_psi_dq_all = []
 data_psi_dq_all = []
 preds_ironloss_all = []
 data_ironloss_all = []
-indices = range(0, len(dataset), 10000)
+# indices = range(0, len(dataset), 1000)
+indices = range(0, len(valid_dataset), 10)
 for i in tqdm(indices):
-# for data in dataset:
-    data = dataset[i]
+# for data in tqdm(valid_dataset):
+    # data = dataset[i]
+    data = valid_dataset[i]
     img = data[0].to(device).unsqueeze(0)
     x2 = data[1].to(device).unsqueeze(0)
     x2_f = torch.cat((x2[:,:2], x2[:,3:]),axis=1)
