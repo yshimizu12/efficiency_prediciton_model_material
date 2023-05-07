@@ -38,7 +38,7 @@ params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
     # 'epochs_optuna': 20,
-    'epochs_check': 10,
+    'epochs_check': 100,
     'save_every': 10,
     'hidden_dim_init': 8,
     'num_hidden_dims': 2,
@@ -312,6 +312,9 @@ def compute_loss(label, pred):
 def train_step(x1, x2, x3, t1, t2, t3, model, optimizer):
     model.train()
     preds = model(x1, x2, x3)
+    t1 = t1.unsqueeze(1)
+    t2 = t2.unsqueeze(1)
+    t3 = t3.unsqueeze(1)
     loss1 = compute_loss(t1, preds[0])
     loss2 = compute_loss(t2, preds[1])
     loss3 = compute_loss(t3, preds[2])
@@ -323,6 +326,9 @@ def train_step(x1, x2, x3, t1, t2, t3, model, optimizer):
 def valid_step(x1, x2, x3, t1, t2, t3, model):
     model.eval()
     preds = model(x1, x2, x3)
+    t1 = t1.unsqueeze(1)
+    t2 = t2.unsqueeze(1)
+    t3 = t3.unsqueeze(1)
     loss1 = compute_loss(t1, preds[0])
     loss2 = compute_loss(t2, preds[1])
     loss3 = compute_loss(t3, preds[2])
