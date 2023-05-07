@@ -85,9 +85,14 @@ with open(f'{dir_model}params.pkl', "rb") as tf:
     params_ = pickle.load(tf)
 params_ironloss.update(params_)
 
+params_gan = {
+    'path_generator': f'{base_dir}_GAN\\230503\\models\\2D-V-Nabla-2U\\model_25.pt',
+}
+
+
 params_data = {
     # 'ext': 'png',
-    'path_data': f'{base_dir}_data_motor\\',
+    'path_data': f'{base_dir}_data_motor\\old\\230502_onehot',
     'folder_image': 'geometry\\result\\image\\',
     # 'fnames': ['2D', '2U', 'V'],
     'fnames': ['2D', '2U', 'V', 'Nabla'],
@@ -96,6 +101,7 @@ params_data = {
     'data_class': 'dataset_class',
     'data_image': 'dataset_image',
     'data_PM': 'dataset_material_PM_dummies',
+    'scaling_parameters': 'dataset_scaling_parameter',
 }
 
 vit_list = [
@@ -314,6 +320,38 @@ model_ironloss.load_state_dict(torch.load(
     params_ironloss['base_dir_model']+params_ironloss['trained_model'], map_location=torch.device(device)
 ))
 model_ironloss.eval()
+
+#%%
+from lightweight_gan.lightweight_gan import Trainer
+#%%
+trainer = Trainer(
+    image_size = 256,
+    # optimizer = 'adam',
+    # fmap_max = 512,
+    # transparent = False,
+    # greyscale = False,
+    # batch_size = 10,
+    # gradient_accumulate_every = 4,
+#     load_every = 1000,
+    # evaluate_every = 1000,
+    # attn_res_layers = [32],
+    # disc_output_size = 1,
+    # antialias = False,
+    # trunc_psi = 0.75,
+    # aug_prob = None,
+    # aug_types = ['cutout', 'translation'],
+    # dataset_aug_prob = 0.,
+    # calculate_fid_every = None,
+    # amp = False
+)
+trainer.init_GAN()
+GAN = trainer.GAN
+GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
+
+#%%
+
+
+#%%
 
 #%%
 class ImageDataset(Dataset):

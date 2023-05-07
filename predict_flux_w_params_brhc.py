@@ -32,7 +32,7 @@ import prediction_model
 
 #%%
 def result_name(modelname):
-    return f'pred_flux_{modelname}_w_params'
+    return f'pred_flux_brhc_{modelname}_w_params'
 
 params = {
     'batch_size': 128,
@@ -61,7 +61,7 @@ params_data = {
     'data_number': 'dataset_number_scaled',
     'data_class': 'dataset_class',
     'data_image': 'dataset_image',
-    'data_PM': 'dataset_material_PM_dummies',
+    # 'data_PM': 'dataset_material_PM_dummies',
 }
 vit_list = [
     'vit_b_16',
@@ -78,7 +78,7 @@ class Regression(nn.Module):
             current_dim=2,
             speed_dim=1,
             pm_temp_dim=1,
-            pm_material_dim=10,
+            pm_material_dim=6,
             hidden_dim_init=6,
             num_hidden_dims=3,
             hidden_dim_out=50,
@@ -165,7 +165,7 @@ class ImageDataset(Dataset):
         fnames = params_data['fnames']
         data_number = params_data['data_number']
         data_image = params_data['data_image']
-        data_PM = params_data['data_PM']
+        # data_PM = params_data['data_PM']
         ## image
         image_size = params_data['image_size']
         self.paths = []
@@ -185,6 +185,7 @@ class ImageDataset(Dataset):
             'current': ['id','iq'],
             'pm_temp': 'PM_TEMP',
             'flux': ['Psi_d','Psi_q'],
+            'pm_material': ['Coercivity','Remanence', 'Recoil', 'Drooping', 'Radius', 'PM_RESISTANCE'],
         }
         self.labels = {}
         for key in data_info.keys():
@@ -194,12 +195,12 @@ class ImageDataset(Dataset):
             for key, val in data_info.items():
                 self.labels[key] = pd.concat((self.labels[key], df[val]), axis=0)
         ## label_pm_material
-        key = 'pm_material'
-        self.labels[key] = pd.DataFrame()
-        for fname in fnames:
-            self.labels[key] = pd.concat((
-                self.labels[key], pd.read_csv(path_data/f'{data_PM}_{fname}.csv')
-            ), axis=0)
+        # key = 'pm_material'
+        # self.labels[key] = pd.DataFrame()
+        # for fname in fnames:
+        #     self.labels[key] = pd.concat((
+        #         self.labels[key], pd.read_csv(path_data/f'{data_PM}_{fname}.csv')
+        #     ), axis=0)
         for key in self.labels.keys():
             self.labels[key] = self.labels[key].values
     def __len__(self):
