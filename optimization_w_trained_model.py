@@ -29,6 +29,7 @@ from torchvision import models, transforms
 # from sklearn.metrics import accuracy_score
 from lightweight_gan.lightweight_gan import Trainer
 
+import evaluation
 import prediction_model
 
 #%%
@@ -89,7 +90,6 @@ params_ironloss.update(params_)
 params_gan = {
     'path_generator': f'{base_dir}_GAN\\230503\\models\\2D-V-Nabla-2U\\model_25.pt',
 }
-
 
 params_data = {
     # 'ext': 'png',
@@ -335,11 +335,138 @@ GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
 
 
 #%%
+params_prediction = {
+    'Ie_max': 180, # 0~800/(2**0.5)
+    'RPM_max': 20000, # 0~300000
+    'TEMP_PM': 20, # 0~200
+    'PM_material': 'NMX-S49CH',
+    'Vdc': 650,
+    'Ra': 0.1,
+    'Pn': 4,
+    'device': device,
+    'param_scaling': pd.read_csv(params_data['path_data']+'\\'+params_data['scaling_parameters']+'_2D.csv'),
+}
+
+evaln = evaluation.Evaluate(
+    regression_model_motorparameter=model_flux,
+    regression_model_ironloss=model_ironloss,
+    **params_prediction)
 
 
 #%%
 
+plt.rcParams['font.family'] = 'Times New Roman'
+plt.rcParams['font.size'] = 13
+
+plt.rcParams["mathtext.fontset"] = 'stix'
+
+plt.rcParams['xtick.direction'] = 'in'
+plt.rcParams['ytick.direction'] = 'in'
+plt.rcParams['axes.linewidth'] = 1.0
+plt.rcParams['axes.grid'] = True
+
+plt.rcParams['legend.fancybox'] = False
+plt.rcParams['legend.framealpha'] = 1
+plt.rcParams['legend.edgecolor'] = 'black'
+
+plt.rcParams['axes.grid'] = False
+plt.rcParams['xtick.bottom'] = False
+plt.rcParams['ytick.left'] = False
+plt.rcParams['ytick.right'] = False
+
+# import datetime
+
+# dt_now = datetime.datetime.now()
+# date = dt_now.strftime('%Y%m%d')[2:]
+
+
 #%%
+import warnings
+warnings.resetwarnings()
+warnings.simplefilter('ignore', DeprecationWarning)
+
+#%%
+n_var = GAN.latent_dim
+params_optimization = {
+    'regression_model_motorparameter': model_flux,
+    'regression_model_ironloss': model_ironloss,
+    'GAN': GAN,
+    'n_var': n_var,
+    'xl': np.ones(n_var)*-1000,
+    'xu': np.ones(n_var)*1000,
+}
+params_optimization['pop_size'] = 100
+params_optimization['n_offsprings'] = 20
+params_optimization['n_termination'] = 50
+params_optimization['verbose'] = True
+
+
+#%%
+def calc_pareto_front(f):
+    f_sorted_by_f1 = f[np.argsort(f[:,0])]    
+    pareto_front = [f_sorted_by_f1[0]]
+    for pair in f_sorted_by_f1[1:]:
+        if pair[1] <= pareto_front[-1][1]:
+            pareto_front = np.vstack((pareto_front,pair))
+    return pareto_front    
+
+#%%
+import cv2
+
+def judge_topology(img):
+    img_h = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)[:,:,0]
+    thre, region_h_min = cv2.threshold(img_h, 200, 1, cv2.THRESH_BINARY_INV)
+    thre, region_h_max = cv2.threshold(img_h, 300, 1, cv2.THRESH_BINARY)
+    region_pm = (region_h_min==region_h_max).astype(np.uint8)
+    contours_pm, _ = cv2.findContours(region_pm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours_pm = list(filter(lambda x: cv2.contourArea(x) > 100, contours_pm))
+    if len(contours_pm) == 1: return 1
+    elif len(contours_pm) == 2: return 2
+    elif len(contours_pm) == 3: return 3  
+
+#%%
+class Optimize:
+    def __init__(self,):
+        pass
+    def optimize(self, Ie_max, Vdc, torque1, torque2, efficiency1, efficiency2):
+        self.Ie_max = Ie_max
+        self.Vdc = Vdc
+        self.torque1 = torque1
+        self.torque2 = torque2
+        self.efficiency1 = efficiency1
+        self.efficiency2 = efficiency2
+        params_prediction['Ie_max'] = float(Ie_max)
+        params_prediction['Vdc'] = float(Vdc)
+        required_torque_points = np.array([
+            [float(x.strip()) for x in torque1.split(',')], 
+            [float(x.strip()) for x in torque2.split(',')],
+        ])
+        evaluate_efficiency_points = np.array([
+            [float(x.strip()) for x in efficiency1.split(',')], 
+            [float(x.strip()) for x in efficiency2.split(',')],
+        ])
+        params_optimization['required_torque_points'] = required_torque_points
+        params_optimization['evaluate_efficiency_points'] = evaluate_efficiency_points
+        params_optimization['n_obj'] = evaluate_efficiency_points.shape[1]
+        params_optimization['n_constr'] = required_torque_points.shape[1]
+
+        opt = evaluation.Optimize(
+            params_prediction=params_prediction,
+            params_optimization=params_optimization,
+        )
+        opt.optimize(seed=params_optimization['seed']) #0,3
+        # opt.show_best_result()
+        self.opt = opt
+        
+params_optimization['seed'] = 3
+f = Optimize()
+
+#%%
+f.optimize(
+    Ie_max='200', Vdc='650', 
+    torque1='197, 3000', torque2='40, 11000', 
+    efficiency1='20, 3500', efficiency2='20, 11000'
+)
 
 #%%
 

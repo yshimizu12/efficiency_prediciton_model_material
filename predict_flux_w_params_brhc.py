@@ -294,7 +294,7 @@ def train_step(x1, x2, x3, t1, t2, model, optimizer):
     loss2 = compute_loss(t2, preds[1])
     optimizer.zero_grad()
     loss = loss1 + loss2
-    print(loss)
+    # print(loss)
     loss.backward()
     optimizer.step()
     return (loss1, loss2), preds
@@ -349,15 +349,13 @@ def main(modelname, typename, pathmodel=None):
     epochs = params['epochs_check']
     save_every = params['save_every']
     for t in range(params['times']):
-        print(len(train_loader), len(valid_loader))
-        break
         model = Regression(**params).to(device)
         optimizer = optimizers.Adam(model.parameters(), lr=params['learning_rate'])#, weight_decay=study.best_params['weight_decay'])
         # save_best_params(study.best_params)
 
         print(f'{t}-times')
-        np.random.seed(t)
-        torch.manual_seed(t)
+        np.random.seed(t+1)
+        torch.manual_seed(t+1)
         results = []
         time_start = time.time()
         for epoch in range(epochs):

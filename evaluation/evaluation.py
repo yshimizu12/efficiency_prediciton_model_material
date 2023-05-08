@@ -17,7 +17,7 @@ from pymoo.operators.sampling.lhs import LHS
 class Evaluate:
     def __init__(
         self, regression_model_motorparameter, regression_model_ironloss,
-        Iem=134, Vdc=650, Ra=0.1285, Pn=4, device='cpu', sp=None, param_scaling=None,
+        Iem=134, Nmax=20000, TEMP_PM=20, PM_material='NMX-S49CH', Vdc=650, Ra=0.1285, Pn=4, device='cpu', param_scaling=None,
         **kwargs,
         ):
         self.regression_model_motorparameter = regression_model_motorparameter
@@ -27,8 +27,11 @@ class Evaluate:
 
         self.Ra = Ra
         self.Pn = Pn
+        self.Nmax = Nmax
+        self.N_interval = 1000 if self.Nmax >= 10000 else self.Nmax//10
+        self.TEMP_PM = TEMP_PM
         self.device = device
-        self.sp = sp
+        # self.sp = sp
         self.param_scaling = param_scaling
         self._elec_params_setting(Iem, Vdc)
         self._init_envs_matplotlib()
@@ -39,7 +42,7 @@ class Evaluate:
             img.transpose(2,0,1).astype(np.float32)
             ])).clone().to(self.device)
         coefs = self.calc_coef(rotor_image_tensor)
-        df_NT_pred_all, _, _ = self._calc_NT(coefs, rotor_image_tensor, Ns=range(1000,14000+1,1000), Ie=self.Iem)
+        df_NT_pred_all, _, _ = self._calc_NT(coefs, rotor_image_tensor, Ns=range(self.N_interval,self.Nmax+self.N_interval,self.N_interval), Ie=self.Iem)
         self._create_efficiency_map(
             df_NT_pred_all,
             charac_num=0,
@@ -51,17 +54,17 @@ class Evaluate:
 
     def calc_coef(self, image, calc_grad=False):
         coefs = self.regression_model_motorparameter(image)
-        sp = [sp_.copy() for sp_ in self.sp]
-        if calc_grad:
-            sp = [torch.from_numpy(sp_).to(device=self.device,dtype=torch.float) for sp_ in sp]
-        else:
-            coefs = [coefs[i].to('cpu').detach().numpy().copy() for i in range(3)]
-        coefs = [c[0] * sp_[1] + sp_[0] for sp_, c in zip(sp, coefs)]
+        # sp = [sp_.copy() for sp_ in self.sp]
+        # if calc_grad:
+            # sp = [torch.from_numpy(sp_).to(device=self.device,dtype=torch.float) for sp_ in sp]
+        # else:
+            # coefs = [coefs[i].to('cpu').detach().numpy().copy() for i in range(3)]
+        # coefs = [c[0] * sp_[1] + sp_[0] for sp_, c in zip(sp, coefs)]
         return coefs
     
     def create_efficiency_map(self, rotor_image_tensor):
         coefs = self.calc_coef(rotor_image_tensor)
-        df_NT_pred_all, _, _ = self._calc_NT(coefs, rotor_image_tensor, Ns=range(1000,14000+1,1000), Ie=self.Iem)
+        df_NT_pred_all, _, _ = self._calc_NT(coefs, rotor_image_tensor, Ns=range(self.N_interval,self.Nmax+self.N_interval,self.N_interval), Ie=self.Iem)
         params_plot = self._create_efficiency_map(
             df_NT_pred_all,
             charac_num=0,
