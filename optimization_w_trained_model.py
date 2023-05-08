@@ -27,6 +27,7 @@ from torchvision import models, transforms
 # import optuna
 # from torchsummary import summary
 # from sklearn.metrics import accuracy_score
+from lightweight_gan.lightweight_gan import Trainer
 
 import prediction_model
 
@@ -322,36 +323,29 @@ model_ironloss.load_state_dict(torch.load(
 model_ironloss.eval()
 
 #%%
-from lightweight_gan.lightweight_gan import Trainer
-#%%
 trainer = Trainer(
+    disc_output_size = 1,
     image_size = 256,
-    # optimizer = 'adam',
-    # fmap_max = 512,
-    # transparent = False,
-    # greyscale = False,
-    # batch_size = 10,
-    # gradient_accumulate_every = 4,
-#     load_every = 1000,
-    # evaluate_every = 1000,
-    # attn_res_layers = [32],
-    # disc_output_size = 1,
-    # antialias = False,
-    # trunc_psi = 0.75,
-    # aug_prob = None,
-    # aug_types = ['cutout', 'translation'],
-    # dataset_aug_prob = 0.,
-    # calculate_fid_every = None,
-    # amp = False
+    use_aim=False
 )
+# model.load(-1)
 trainer.init_GAN()
 GAN = trainer.GAN
 GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
 
+
 #%%
 
 
 #%%
+
+#%%
+
+#%%
+
+
+
+
 
 #%%
 class ImageDataset(Dataset):

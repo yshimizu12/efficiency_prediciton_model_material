@@ -283,6 +283,7 @@ def get_optimizer(trial, model, optimizer_name='Adam'):
     return optimizer
 
 def compute_loss(label, pred):
+    # print(pred.float(), label.float())
     return nn.MSELoss()(pred.float(), label.float())
 def train_step(x1, x2, x3, t1, t2, model, optimizer):
     model.train()
@@ -293,6 +294,7 @@ def train_step(x1, x2, x3, t1, t2, model, optimizer):
     loss2 = compute_loss(t2, preds[1])
     optimizer.zero_grad()
     loss = loss1 + loss2
+    print(loss)
     loss.backward()
     optimizer.step()
     return (loss1, loss2), preds
@@ -342,11 +344,13 @@ def main(modelname, typename, pathmodel=None):
 
     save_params(params)
     train_loader, valid_loader = set_data_src(NUM_CORES, params['batch_size'], world_size, rank, is_ddp)
-
+    
     print('model start')
     epochs = params['epochs_check']
     save_every = params['save_every']
     for t in range(params['times']):
+        print(len(train_loader), len(valid_loader))
+        break
         model = Regression(**params).to(device)
         optimizer = optimizers.Adam(model.parameters(), lr=params['learning_rate'])#, weight_decay=study.best_params['weight_decay'])
         # save_best_params(study.best_params)
