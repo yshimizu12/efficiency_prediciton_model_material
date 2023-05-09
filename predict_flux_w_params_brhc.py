@@ -32,14 +32,14 @@ import prediction_model
 
 #%%
 def result_name(modelname):
-    return f'pred_flux_brhc_{modelname}_w_params_test'
+    return f'pred_flux_brhc_{modelname}_w_params'
 
 params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
     # 'epochs_optuna': 20,
-    'epochs_check': 10,
-    'save_every': 1,
+    'epochs_check': 100,
+    'save_every': 10,
     'hidden_dim_init': 4,
     'num_hidden_dims': 4,
     'hidden_dim_other': 16,

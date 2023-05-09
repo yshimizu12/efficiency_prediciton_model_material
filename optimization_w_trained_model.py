@@ -179,14 +179,22 @@ class RegressionFlux(nn.Module):
         else:
             raise NotImplementedError(f'activation type "{activation_type}" is unknown')
 
-    def forward(self, image, parameters, pm_material): # current: 2-dim
+    def forward(self, image, parameters, pm_material):
+        x = self.forward1(image)
+        y1, y2 = self.forward2(x, parameters, pm_material)
+        return y1, y2
+
+    def forward1(self, image):
         ## image
         x = self.model_ft(image)
         x = self.linear1(x)
         x = self.bn1(x)
         x = self.activation(x)
+        return x
+
+    def forward2(self, x, parameters, pm_material):
+        ## image
         x = torch.cat([x,parameters], axis=1)
-        # x = torch.cat([x,speed], axis=1)
         # x = torch.cat([x,pm_temp], axis=1)
         x = torch.cat([x,pm_material], axis=1)
         for i, (f, bn) in enumerate(zip(self.linear_list1, self.batch_norm_list1)):
@@ -199,7 +207,7 @@ class RegressionFlux(nn.Module):
             x2 = self.activation(x2)
         y1 = self.out1(x1)
         y2 = self.out2(x2)
-        return y1, y2 # Psi_d, Psi_q
+        return y1, y2
 
 class RegressionIronLoss(nn.Module):
     def __init__(
@@ -281,14 +289,19 @@ class RegressionIronLoss(nn.Module):
             raise NotImplementedError(f'activation type "{activation_type}" is unknown')
 
     def forward(self, image, parameters, pm_material): # current: 2-dim
-        ## image
+        x = self.forward1(image)
+        y1, y2, y3 = self.forward2(x, parameters, pm_material)
+        return y1, y2, y3 # hysteresis, joule, pm_joule
+
+    def forward1(self, image):
         x = self.model_ft(image)
         x = self.linear1(x)
         x = self.bn1(x)
         x = self.activation(x)
+        return x
+
+    def forward2(self, x, parameters, pm_material):
         x = torch.cat([x,parameters], axis=1)
-        # x = torch.cat([x,speed], axis=1)
-        # x = torch.cat([x,pm_temp], axis=1)
         x = torch.cat([x,pm_material], axis=1)
         for i, (f, bn) in enumerate(zip(self.linear_list1, self.batch_norm_list1)):
             x1 = f(x1) if i > 0 else f(x)
@@ -305,7 +318,7 @@ class RegressionIronLoss(nn.Module):
         y1 = self.out1(x1)
         y2 = self.out2(x2)
         y3 = self.out3(x3)
-        return y1, y2, y3 # hysteresis, joule, pm_joule
+        return y1, y2, y3
 
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -333,26 +346,42 @@ trainer.init_GAN()
 GAN = trainer.GAN
 GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
 
+# #%%
+# import importlib
+# importlib.reload(evaluation)
 
 #%%
 params_prediction = {
-    'Ie_max': 180, # 0~800/(2**0.5)
-    'RPM_max': 20000, # 0~300000
+    'Ie_max': 300, # 0~800/(2**0.5)
+    'RPM_max': 20000, # 0~30000
     'TEMP_PM': 20, # 0~200
     'PM_material': 'NMX-S49CH',
     'Vdc': 650,
     'Ra': 0.1,
     'Pn': 4,
     'device': device,
-    'param_scaling': pd.read_csv(params_data['path_data']+'\\'+params_data['scaling_parameters']+'_2D.csv'),
+    'path_param_scaling': params_data['path_data']+'\\'+params_data['scaling_parameters']+'_2D.csv',
 }
+df_sp = pd.read_csv(params_prediction['path_param_scaling'])
+df_sp.index = ['mean','std']
+params_prediction['param_scaling'] = df_sp
 
-# evaln = evaluation.Evaluate(
-#     regression_model_motorparameter=model_flux,
-#     regression_model_ironloss=model_ironloss,
-#     **params_prediction)
+evaln = evaluation.Evaluate(
+    model_flux=model_flux,
+    model_ironloss=model_ironloss,
+    **params_prediction)
+
+path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
+img = Image.open(path_img)
+img = np.array(img)
+rotor_image_tensor = torch.from_numpy(np.array([
+    img.transpose(2,0,1).astype(np.float32)
+])).clone().to(device)
 
 
+evaln.evaluation(img, 'hoge')
+
+#evaln.create_efficiency_map(rotor_image_tensor)
 #%%
 
 plt.rcParams['font.family'] = 'Times New Roman'
