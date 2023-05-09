@@ -17,7 +17,8 @@ from pymoo.operators.sampling.lhs import LHS
 class Evaluate:
     def __init__(
         self, model_flux, model_ironloss,
-        Ie_max=134, RPM_max=20000, TEMP_PM=20, PM_material='NMX-S49CH', Vdc=650, Ra=0.1285, Pn=4, device='cpu', include_pm_joule=False, param_scaling=None,
+        Ie_max=134, RPM_max=20000, TEMP_PM=20, PM_material='NMX-S49CH', PM_data=None, PM_class=None,
+        Vdc=650, Ra=0.1285, Pn=4, device='cpu', include_pm_joule=False, param_scaling=None,
         **kwargs,
         ):
         # self.model_flux = model_flux
@@ -40,7 +41,7 @@ class Evaluate:
         self.include_pm_joule = include_pm_joule
         self._elec_params_setting(Ie_max, Vdc)
         self._init_envs_matplotlib()
-        self.pm_material = self._init_PM_material(PM_material)
+        self.pm_material = self._init_PM_material(TEMP_PM, PM_material, PM_data, PM_class)
 
     def evaluation(self, img, filename):
         img = np.array(img)
@@ -80,8 +81,38 @@ class Evaluate:
         )
         return params_plot, df_NT_pred_all['Tavg (Nm)'].values[0]
 
-    def _init_PM_material(self, PM_material):
-        return  torch.tensor(np.array([1,0,0,0,0,0,0,0,0,0]), dtype=torch.float32).to(self.device)
+    def _init_PM_material(self, TEMP_PM, PM_material, PM_data, PM_class):
+        pm_data_int = self._interpolate(TEMP_PM, PM_data[PM_material])
+        if PM_material in PM_class['NMX']:
+            pm_data_int['PM_RESISTANCE'] = 1.44e-6
+        elif PM_material in PM_class['R']:
+            pm_data_int['PM_RESISTANCE'] = 8e-7
+        else:
+            pm_data_int['PM_RESISTANCE'] = np.nan
+
+        # print(pm_data_int)
+        pm_data_int_scaled = [
+            self._scaling(pm_data_int['Coercivity'],'Coercivity'),
+            self._scaling(pm_data_int['Remanence'],'Remanence'),
+            self._scaling(pm_data_int['Recoil'],'Recoil'),
+            self._scaling(pm_data_int['Drooping'],'Drooping'),
+            self._scaling(pm_data_int['Radius'],'Radius'),
+            self._scaling(pm_data_int['PM_RESISTANCE'],'PM_RESISTANCE'),
+        ]
+        # print(pm_data_int_scaled)
+        return  torch.tensor(pm_data_int_scaled, dtype=torch.float32).to(self.device)
+        # return  torch.tensor(self._interpolate(TEMP_PM, PM_data[PM_material]).values, dtype=torch.float32).to(self.device)
+        # return  torch.tensor(np.array([1,0,0,0,0,0,0,0,0,0]), dtype=torch.float32).to(self.device)
+    
+    def _interpolate(self, PM_TEMP, data_df):
+        if PM_TEMP <= data_df["PM_TEMP"].iloc[0]:
+            i = 0
+        elif PM_TEMP >= data_df["PM_TEMP"].iloc[-1]:
+            i = -2
+        else:
+            i = data_df[data_df["PM_TEMP"] <= PM_TEMP].index[-1]
+        return data_df.iloc[i, :] + (PM_TEMP - data_df["PM_TEMP"].iloc[i]) * (data_df.iloc[i + 1, :] - data_df.iloc[i, :]) / (data_df["PM_TEMP"].iloc[i + 1] - data_df["PM_TEMP"].iloc[i])
+
 
     def _sin(self, theta): return np.sin(np.radians(theta))
     def _cos(self, theta): return np.cos(np.radians(theta))
@@ -111,6 +142,7 @@ class Evaluate:
         id_scaled = self._scaling(id_,'id')
         iq_scaled = self._scaling(iq_,'iq')
         parameters = np.vstack((id_scaled, iq_scaled, np.repeat(self.TEMP_PM, dim))).T
+        print(parameters)
         # parameters = np.concatenate([[id_scaled, iq_scaled], [self.TEMP_PM]])
         # print(parameters.shape)
         # print(torch.tensor(parameters, dtype=torch.float32).to(self.device).shape)
@@ -136,7 +168,8 @@ class Evaluate:
     def _torque_calculation(self, Ia, beta, encoded_img, calc_grad=False):
         # P_pred, Ld_pred, Lq_pred = self._motor_parameter_calculation_grad(Ia, beta, coefs) if calc_grad else self._motor_parameter_calculation(Ia, beta, coefs)
         psi_d, psi_q = self._flux_calculation(Ia, beta, encoded_img)
-        return self.Pn*Ia*psi_d*self._cos(beta)+self.Pn*Ia*psi_q*self._sin(beta)
+        print(psi_d, psi_q)
+        return self.Pn*(Ia*psi_d*self._cos(beta)+Ia*psi_q*self._sin(beta))
 
     def _speed_limit_calculation(self, Ia, beta, encoded_img):
         # P_pred, Ld_pred, Lq_pred = self._motor_parameter_calculation(Ia, beta, coefs)

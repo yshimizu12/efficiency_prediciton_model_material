@@ -8,6 +8,7 @@ from pathlib import Path
 from tqdm import tqdm
 # import time
 import pickle
+import re
 
 import numpy as np
 import pandas as pd
@@ -39,7 +40,7 @@ params_flux = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2305062304_pred_flux_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305091901_pred_flux_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -65,7 +66,7 @@ params_ironloss = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2305062304_pred_ironloss_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305091905_pred_ironloss_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -93,7 +94,7 @@ params_gan = {
 
 params_data = {
     # 'ext': 'png',
-    'path_data': f'{base_dir}_data_motor\\old\\230502_onehot',
+    'path_data': f'{base_dir}_data_motor',
     'folder_image': 'geometry\\result\\image\\',
     # 'fnames': ['2D', '2U', 'V'],
     'fnames': ['2D', '2U', 'V', 'Nabla'],
@@ -122,7 +123,7 @@ class RegressionFlux(nn.Module):
             current_dim=2,
             speed_dim=1,
             pm_temp_dim=1,
-            pm_material_dim=10,
+            pm_material_dim=6,
             hidden_dim_init=6,
             num_hidden_dims=3,
             hidden_dim_out=50,
@@ -215,7 +216,7 @@ class RegressionIronLoss(nn.Module):
             current_dim=2,
             speed_dim=1,
             pm_temp_dim=1,
-            pm_material_dim=10,
+            pm_material_dim=6,
             hidden_dim_init=6,
             num_hidden_dims=3,
             hidden_dim_out=50,
@@ -352,7 +353,7 @@ GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
 
 #%%
 params_prediction = {
-    'Ie_max': 300, # 0~800/(2**0.5)
+    'Ie_max': 400, # 0~800/(2**0.5)
     'RPM_max': 20000, # 0~30000
     'TEMP_PM': 20, # 0~200
     'PM_material': 'NMX-S49CH',
@@ -361,28 +362,51 @@ params_prediction = {
     'Pn': 4,
     'device': device,
     'include_pm_joule': False,
-    'path_param_scaling': params_data['path_data']+'\\'+params_data['scaling_parameters']+'_2D.csv',
+    'path_param_scaling': params_data['path_data']+'\\'+params_data['scaling_parameters']+'_all.csv',
 }
 df_sp = pd.read_csv(params_prediction['path_param_scaling'])
 df_sp.index = ['mean','std']
 params_prediction['param_scaling'] = df_sp
+
+data_dir = Path(f"{params_data['path_data']}\\raw\\_common_setting\\b-h_PM")
+pattern = r"b-h_(.+)\.csv"
+PM_names = [re.search(pattern, p.name).group(1) for p in data_dir.glob('*.csv')]
+PM_data = {
+    n: pd.read_csv(p) for n, p in zip(PM_names, data_dir.glob('*.csv'))
+}
+PM_class = {
+    'NMX':[],
+    'R':[],
+}
+for n in PM_names:
+    if n.startswith('NMX'):
+        PM_class['NMX'].append(n)
+    elif n.startswith('R'):
+        PM_class['R'].append(n)
+
+params_prediction['PM_data'] = PM_data
+params_prediction['PM_class'] = PM_class
 
 evaln = evaluation.Evaluate(
     model_flux=model_flux,
     model_ironloss=model_ironloss,
     **params_prediction)
 
+#%%
 path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
 img = Image.open(path_img)
 img = np.array(img)
-# rotor_image_tensor = torch.from_numpy(np.array([
-#     img.transpose(2,0,1).astype(np.float32)
-# ])).clone().to(device)
+rotor_image_tensor = torch.from_numpy(np.array([
+    img.transpose(2,0,1).astype(np.float32)
+])).clone().to(device)
 
+encoded_img = evaln._calc_encoded_img(rotor_image_tensor)
+beta = np.arange(0,91,5)
+torque = [evaln._torque_calculation(300, b, encoded_img[0]) for b in beta]
+plt.plot(beta, torque)
 
-evaln.evaluation(img, 'hoge')
-
-#evaln.create_efficiency_map(rotor_image_tensor)
+# evaln.evaluation(img, 'hoge')
+# evaln.create_efficiency_map(rotor_image_tensor)
 #%%
 
 plt.rcParams['font.family'] = 'Times New Roman'

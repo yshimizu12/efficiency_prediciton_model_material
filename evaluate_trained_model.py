@@ -37,7 +37,7 @@ params_flux = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2305062304_pred_flux_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305091901_pred_flux_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -63,7 +63,7 @@ params_ironloss = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\0_try\\2305062304_pred_ironloss_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305091905_pred_ironloss_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -95,7 +95,7 @@ params_data = {
     'data_number': 'dataset_number_scaled',
     'data_class': 'dataset_class',
     'data_image': 'dataset_image',
-    'data_PM': 'dataset_material_PM_dummies',
+    # 'data_PM': 'dataset_material_PM_dummies',
 }
 
 vit_list = [
@@ -115,7 +115,7 @@ class RegressionFlux(nn.Module):
             current_dim=2,
             speed_dim=1,
             pm_temp_dim=1,
-            pm_material_dim=10,
+            pm_material_dim=6,
             hidden_dim_init=6,
             num_hidden_dims=3,
             hidden_dim_out=50,
@@ -200,7 +200,7 @@ class RegressionIronLoss(nn.Module):
             current_dim=2,
             speed_dim=1,
             pm_temp_dim=1,
-            pm_material_dim=10,
+            pm_material_dim=6,
             hidden_dim_init=6,
             num_hidden_dims=3,
             hidden_dim_out=50,
@@ -324,7 +324,7 @@ class ImageDataset(Dataset):
         fnames = params_data['fnames']
         data_number = params_data['data_number']
         data_image = params_data['data_image']
-        data_PM = params_data['data_PM']
+        # data_PM = params_data['data_PM']
         ## image
         image_size = params_data['image_size']
         self.paths = []
@@ -346,6 +346,7 @@ class ImageDataset(Dataset):
             'speed': 'RPM',
             'flux': ['Psi_d','Psi_q'],
             'ironloss': ['W_e_pm', 'W_e_core', 'W_h_core'],
+            'pm_material': ['Coercivity','Remanence', 'Recoil', 'Drooping', 'Radius', 'PM_RESISTANCE'],
         }
         self.labels = {}
         for key in data_info.keys():
@@ -355,12 +356,12 @@ class ImageDataset(Dataset):
             for key, val in data_info.items():
                 self.labels[key] = pd.concat((self.labels[key], df[val]), axis=0)
         ## label_pm_material
-        key = 'pm_material'
-        self.labels[key] = pd.DataFrame()
-        for fname in fnames:
-            self.labels[key] = pd.concat((
-                self.labels[key], pd.read_csv(path_data/f'{data_PM}_{fname}.csv')
-            ), axis=0)
+        # key = 'pm_material'
+        # self.labels[key] = pd.DataFrame()
+        # for fname in fnames:
+        #     self.labels[key] = pd.concat((
+        #         self.labels[key], pd.read_csv(path_data/f'{data_PM}_{fname}.csv')
+        #     ), axis=0)
         for key in self.labels.keys():
             self.labels[key] = self.labels[key].values
     def __len__(self):
@@ -415,7 +416,7 @@ data_psi_dq_all = []
 preds_ironloss_all = []
 data_ironloss_all = []
 # indices = range(0, len(dataset), 1000)
-indices = range(0, len(valid_dataset), 10)
+indices = range(0, len(valid_dataset), 100)
 for i in tqdm(indices):
 # for data in tqdm(valid_dataset):
     # data = dataset[i]
