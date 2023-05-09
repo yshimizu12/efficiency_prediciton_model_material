@@ -360,6 +360,7 @@ params_prediction = {
     'Ra': 0.1,
     'Pn': 4,
     'device': device,
+    'include_pm_joule': False,
     'path_param_scaling': params_data['path_data']+'\\'+params_data['scaling_parameters']+'_2D.csv',
 }
 df_sp = pd.read_csv(params_prediction['path_param_scaling'])
@@ -374,9 +375,9 @@ evaln = evaluation.Evaluate(
 path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
 img = Image.open(path_img)
 img = np.array(img)
-rotor_image_tensor = torch.from_numpy(np.array([
-    img.transpose(2,0,1).astype(np.float32)
-])).clone().to(device)
+# rotor_image_tensor = torch.from_numpy(np.array([
+#     img.transpose(2,0,1).astype(np.float32)
+# ])).clone().to(device)
 
 
 evaln.evaluation(img, 'hoge')
@@ -417,8 +418,8 @@ warnings.simplefilter('ignore', DeprecationWarning)
 #%%
 n_var = GAN.latent_dim
 params_optimization = {
-    'regression_model_motorparameter': model_flux,
-    'regression_model_ironloss': model_ironloss,
+    'model_flux': model_flux,
+    'model_ironloss': model_ironloss,
     'GAN': GAN,
     'n_var': n_var,
     'xl': np.ones(n_var)*-1000,

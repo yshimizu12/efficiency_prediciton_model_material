@@ -17,7 +17,7 @@ from pymoo.operators.sampling.lhs import LHS
 class Evaluate:
     def __init__(
         self, model_flux, model_ironloss,
-        Ie_max=134, RPM_max=20000, TEMP_PM=20, PM_material='NMX-S49CH', Vdc=650, Ra=0.1285, Pn=4, device='cpu', param_scaling=None,
+        Ie_max=134, RPM_max=20000, TEMP_PM=20, PM_material='NMX-S49CH', Vdc=650, Ra=0.1285, Pn=4, device='cpu', include_pm_joule=False, param_scaling=None,
         **kwargs,
         ):
         # self.model_flux = model_flux
@@ -37,6 +37,7 @@ class Evaluate:
         self.device = device
         # self.sp = sp
         self.param_scaling = param_scaling
+        self.include_pm_joule = include_pm_joule
         self._elec_params_setting(Ie_max, Vdc)
         self._init_envs_matplotlib()
         self.pm_material = self._init_PM_material(PM_material)
@@ -344,7 +345,7 @@ class Evaluate:
 
         # for Ia, beta, N in zip(NT_pred_all[:,0],NT_pred_all[:,1],NT_pred_all[:,2]):
         #     print(self._loss_calculation(Ia, beta, N, encoded_img_all[1]))
-        loss_pred_all = np.array([self._loss_calculation(Ia, beta, N, encoded_img_all[1])
+        loss_pred_all = np.array([self._loss_calculation(Ia, beta, N, encoded_img_all[1], include_pm_joule=self.include_pm_joule)
                                 for Ia, beta, N in zip(NT_pred_all[:,0],NT_pred_all[:,1],NT_pred_all[:,2])])
         power_pred = NT_pred_all[:,3] * 2*np.pi/60 * NT_pred_all[:,2]
         efficiency_pred = (power_pred[:-14]-loss_pred_all.T[1][:-14])/(power_pred[:-14]+loss_pred_all.T[0][:-14])
@@ -359,7 +360,7 @@ class Evaluate:
                                     columns=['N (min-1)','Tavg (Nm)','Wc (W)','Wi (W)','W (W)','Efficiency (%)'],)
 
         NT_pred_all_tmp = np.vstack((NT_pred_all_tmp,[[[0, 0, N, 0] for N in Ns]]))
-        loss_pred_all = np.array([[self._loss_calculation(Ia, beta, N, encoded_img_all[1])
+        loss_pred_all = np.array([[self._loss_calculation(Ia, beta, N, encoded_img_all[1], include_pm_joule=self.include_pm_joule)
                                 for Ia, beta, N in zip(NT_pred_all_tmp[i,:,0],NT_pred_all_tmp[i,:,1],NT_pred_all_tmp[i,:,2])]
                                 for i in range(NT_pred_all_tmp.shape[0])])
         pred_all = np.concatenate((NT_pred_all_tmp[:,:,2:],loss_pred_all),2)
@@ -579,7 +580,7 @@ class Optimize:
             values = []
             for cond in self.condition_evaluation_point_best:
                 Ia, beta, N, T = cond['Ia'], cond['beta'], cond['N'], cond['T']
-                loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, calc_grad=False)
+                loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, include_pm_joule=self.include_pm_joule, calc_grad=False)
                 power = N * 2*np.pi/60 * T
                 efficiency = (power-loss[1])/(power+loss[0])*100
                 values.append(efficiency)
@@ -606,14 +607,14 @@ class Optimize:
         if self.generated_image_best is None:
             print('Optimize first!')
         else:
-            coefs = self.problem.eval.calc_coef(self.generated_image_best)
+            encoded_img_all = self.problem.eval._calc_encoded_img(self.generated_image_best)
             self.Iam_best = self.problem.eval.Iam
-            self.beta_mtpa_best, _ = self.problem.eval._mtpa_beta_search(coefs, 0, 90, 5)
+            self.beta_mtpa_best, _ = self.problem.eval._mtpa_beta_search(encoded_img_all[0], 0, 90, 5)
             self.condition_evaluation_point_best = []
             for evaluate_point in self.problem.evaluate_efficiency_points:
                 Ia_point, beta_point, N_point, T_point = \
                     self.problem.eval._search_current_condition_for_maximum_torque_control(
-                        evaluate_point[1], evaluate_point[0], coefs, self.Iam_best)
+                        evaluate_point[1], evaluate_point[0], encoded_img_all[0], self.Iam_best)
                 self.condition_evaluation_point_best.append(
                     {'Ia': Ia_point, 'beta': beta_point, 'N': N_point, 'T': T_point}
                 )
@@ -643,13 +644,13 @@ class Optimize:
         generated_image = self.problem.Generator(x_tensor)
         _, encoded_img = self.problem.eval._calc_encoded_img(generated_image)
         if charac=='efficiency':
-            loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, calc_grad=True)
+            loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, include_pm_joule=self.include_pm_joule, calc_grad=True)
             power = N * 2*np.pi/60 * T
             efficiency = (power-loss[1])/(power+loss[0])
             efficiency.backward()
         elif charac=='torque':
-            coefs = self.problem.eval.calc_coef(generated_image, calc_grad=True)
-            torque = self.problem.eval._torque_calculation(Ia, beta, coefs, calc_grad=True)
+            encoded_img, _ = self.problem.eval._calc_encoded_img(generated_image)
+            torque = self.problem.eval._torque_calculation(Ia, beta, encoded_img, calc_grad=True)
             torque.backward()
         else:
             print('select charac from ["efficiency", "torque"]')
@@ -667,7 +668,7 @@ class Optimize:
 class MyProblem(ElementwiseProblem):
     def __init__(
         self, params_prediction, required_torque_points=None, evaluate_efficiency_points=None, n_var=256, n_obj=2, n_constr=2, xl=np.ones(256)*-1000, xu=np.ones(256)*1000,
-        GAN=None, regression_model_motorparameter=None, regression_model_ironloss=None, **kwargs,
+        GAN=None, model_flux=None, model_ironloss=None, **kwargs,
     ):
         super().__init__(
             n_var=n_var,
@@ -678,33 +679,33 @@ class MyProblem(ElementwiseProblem):
             # elementwise_evaluation=True,
         )
         self.eval = Evaluate(
-            regression_model_motorparameter=regression_model_motorparameter,
-            regression_model_ironloss=regression_model_ironloss,
+            model_flux=model_flux,
+            model_ironloss=model_ironloss,
             **params_prediction)
         self.device = params_prediction['device']
         self.dimension = self.n_var        
         self.Generator = GAN.G
         self.latent_dim = self.n_var
-        self.regression_model = regression_model_motorparameter
-        self.regression_model_ironloss = regression_model_ironloss
+        self.model_flux = model_flux
+        self.model_ironloss = model_ironloss
         self.required_torque_points = required_torque_points
         self.num_of_req_points = self.required_torque_points.shape[0]
         self.evaluate_efficiency_points = evaluate_efficiency_points
 
     def _evaluate(self, x, out, *args, **kwargs):
         generated_image = self.Generator(torch.from_numpy(x.reshape(1,-1)).to(device=self.device,dtype=torch.float))
-        encoded_img_all = self.problem.eval._calc_encoded_img(generated_image)
+        encoded_img_all = self.eval._calc_encoded_img(generated_image)
         # coefs = self.eval.calc_coef(generated_image)
         # torque
-        charac_at_req = np.array([ self.eval._search(N_req, coefs) for N_req in self.required_torque_points[:,1] ])
+        charac_at_req = np.array([ self.eval._search(N_req, encoded_img_all[0]) for N_req in self.required_torque_points[:,1] ])
         # efficiency
         efficiencies = []
         conditions = []
         losses = []
         for evaluate_point in self.evaluate_efficiency_points:
             try:
-                Ia_point, beta_point, N_point, T_point = self.eval._search_current_condition_for_maximum_torque_control(evaluate_point[1], evaluate_point[0], coefs, self.eval.Iam)
-                loss = self.eval._loss_calculation(Ia_point, beta_point, evaluate_point[1], encoded_img_all[1])
+                Ia_point, beta_point, N_point, T_point = self.eval._search_current_condition_for_maximum_torque_control(evaluate_point[1], evaluate_point[0], encoded_img_all[0], self.eval.Iam)
+                loss = self.eval._loss_calculation(Ia_point, beta_point, evaluate_point[1], encoded_img_all[1], include_pm_joule=self.include_pm_joule)
                 power = N_point * 2*np.pi/60 * T_point
                 efficiencies.append( -(power-loss[1])/(power+loss[0]) )
                 conditions.append([Ia_point, beta_point, N_point, T_point])
