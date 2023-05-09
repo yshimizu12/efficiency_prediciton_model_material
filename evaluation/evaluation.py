@@ -41,7 +41,7 @@ class Evaluate:
         rotor_image_tensor = torch.from_numpy(np.array([
             img.transpose(2,0,1).astype(np.float32)
             ])).clone().to(self.device)
-        coefs = self.calc_coef(rotor_image_tensor)
+        # coefs = self.calc_coef(rotor_image_tensor)
         df_NT_pred_all, _, _ = self._calc_NT(coefs, rotor_image_tensor, Ns=range(self.N_interval,self.Nmax+self.N_interval,self.N_interval), Ie=self.Iem)
         self._create_efficiency_map(
             df_NT_pred_all,
@@ -52,18 +52,25 @@ class Evaluate:
             create_plot=True,
             )
 
-    def calc_coef(self, image, calc_grad=False):
-        coefs = self.regression_model_motorparameter(image)
-        # sp = [sp_.copy() for sp_ in self.sp]
-        # if calc_grad:
-            # sp = [torch.from_numpy(sp_).to(device=self.device,dtype=torch.float) for sp_ in sp]
-        # else:
-            # coefs = [coefs[i].to('cpu').detach().numpy().copy() for i in range(3)]
-        # coefs = [c[0] * sp_[1] + sp_[0] for sp_, c in zip(sp, coefs)]
-        return coefs
-    
+    # def calc_coef(self, image, calc_grad=False):
+    #     coefs = self.regression_model_motorparameter(image)
+    #     sp = [sp_.copy() for sp_ in self.sp]
+    #     if calc_grad:
+    #         sp = [torch.from_numpy(sp_).to(device=self.device,dtype=torch.float) for sp_ in sp]
+    #     else:
+    #         coefs = [coefs[i].to('cpu').detach().numpy().copy() for i in range(3)]
+    #     coefs = [c[0] * sp_[1] + sp_[0] for sp_, c in zip(sp, coefs)]
+    #     return coefs
+
+    def calc_encoded_img(self, image, calc_grad=False):
+        if calc_grad:
+            pass
+        else:
+            pass
+        return encoded_img
+
     def create_efficiency_map(self, rotor_image_tensor):
-        coefs = self.calc_coef(rotor_image_tensor)
+        # coefs = self.calc_coef(rotor_image_tensor)
         df_NT_pred_all, _, _ = self._calc_NT(coefs, rotor_image_tensor, Ns=range(self.N_interval,self.Nmax+self.N_interval,self.N_interval), Ie=self.Iem)
         params_plot = self._create_efficiency_map(
             df_NT_pred_all,
@@ -79,51 +86,51 @@ class Evaluate:
     # def _calculate_magnet_volume(self, image):
     #     return float((image.max(axis=1)[1]==2).sum())/(256*256)*100
 
-    def _calc_current_P(self, current):
-        current = np.array(current)
-        return np.stack((
-            current**3,
-            current**2,
-            current,
-            np.ones(current.shape),
-            ))
+    # def _calc_current_P(self, current):
+    #     current = np.array(current)
+    #     return np.stack((
+    #         current**3,
+    #         current**2,
+    #         current,
+    #         np.ones(current.shape),
+    #         ))
 
-    def _calc_current_Ld(self, id_L, iq_L):
-        id_L = np.array(id_L)
-        iq_L = np.array(iq_L)
-        return np.stack((
-            np.ones(id_L.shape),
-            id_L,
-            iq_L,
-            id_L**2,
-            id_L * iq_L,
-            iq_L**2,
-            id_L**3,
-            (id_L**2) * iq_L,
-            id_L * (iq_L**2),
-            iq_L**3,
-            ))
+    # def _calc_current_Ld(self, id_L, iq_L):
+    #     id_L = np.array(id_L)
+    #     iq_L = np.array(iq_L)
+    #     return np.stack((
+    #         np.ones(id_L.shape),
+    #         id_L,
+    #         iq_L,
+    #         id_L**2,
+    #         id_L * iq_L,
+    #         iq_L**2,
+    #         id_L**3,
+    #         (id_L**2) * iq_L,
+    #         id_L * (iq_L**2),
+    #         iq_L**3,
+    #         ))
 
-    def _calc_current_Lq(self, id_L, iq_L):
-        id_L = np.array(id_L)
-        iq_L = np.array(iq_L)
-        return np.stack((
-            np.ones(id_L.shape),
-            id_L,
-            iq_L,
-            id_L**2,
-            id_L * iq_L,
-            iq_L**2,
-            id_L**3,
-            (id_L**2) * iq_L,
-            id_L * (iq_L**2),
-            iq_L**3,
-            id_L**4,
-            (id_L**3) * iq_L,
-            (id_L**2) * (iq_L**2),
-            id_L * (iq_L**3),
-            iq_L**4,
-            ))
+    # def _calc_current_Lq(self, id_L, iq_L):
+    #     id_L = np.array(id_L)
+    #     iq_L = np.array(iq_L)
+    #     return np.stack((
+    #         np.ones(id_L.shape),
+    #         id_L,
+    #         iq_L,
+    #         id_L**2,
+    #         id_L * iq_L,
+    #         iq_L**2,
+    #         id_L**3,
+    #         (id_L**2) * iq_L,
+    #         id_L * (iq_L**2),
+    #         iq_L**3,
+    #         id_L**4,
+    #         (id_L**3) * iq_L,
+    #         (id_L**2) * (iq_L**2),
+    #         id_L * (iq_L**3),
+    #         iq_L**4,
+    #         ))
 
     def _motor_parameter_calculation(self, Ia, beta, coefs):
         Ia, beta = np.array([Ia]).reshape(-1), np.array([beta]).reshape(-1)
@@ -131,25 +138,25 @@ class Evaluate:
         id_ = -Ia*self._sin(beta)
         iq_ = Ia*self._cos(beta)
 
-        current_P = self._calc_current_P(Ia)
-        current_Ld = self._calc_current_Ld(id_, iq_)
-        current_Lq = self._calc_current_Lq(id_, iq_)
-        P_pred = np.dot(coefs[0], current_P)
-        Ld_pred = np.dot(coefs[1], current_Ld)
-        Lq_pred = np.dot(coefs[2], current_Lq)
-        return P_pred, Ld_pred, Lq_pred
+        # current_P = self._calc_current_P(Ia)
+        # current_Ld = self._calc_current_Ld(id_, iq_)
+        # current_Lq = self._calc_current_Lq(id_, iq_)
+        # P_pred = np.dot(coefs[0], current_P)
+        # Ld_pred = np.dot(coefs[1], current_Ld)
+        # Lq_pred = np.dot(coefs[2], current_Lq)
+        # return P_pred, Ld_pred, Lq_pred
 
-    def _motor_parameter_calculation_grad(self, Ia, beta, coefs):
-        id_ = -Ia*self._sin(beta)
-        iq_ = Ia*self._cos(beta)
-        #.reshape(1,-1)
-        current_P = torch.from_numpy(self._calc_current_P(Ia)).to(device=self.device,dtype=torch.float)
-        current_Ld = torch.from_numpy(self._calc_current_Ld(id_, iq_)).to(device=self.device,dtype=torch.float)
-        current_Lq = torch.from_numpy(self._calc_current_Lq(id_, iq_)).to(device=self.device,dtype=torch.float)
-        P_pred = torch.matmul(coefs[0], current_P)
-        Ld_pred = torch.matmul(coefs[1], current_Ld)
-        Lq_pred = torch.matmul(coefs[2], current_Lq)
-        return P_pred, Ld_pred, Lq_pred
+    # def _motor_parameter_calculation_grad(self, Ia, beta, coefs):
+    #     id_ = -Ia*self._sin(beta)
+    #     iq_ = Ia*self._cos(beta)
+    #     #.reshape(1,-1)
+    #     current_P = torch.from_numpy(self._calc_current_P(Ia)).to(device=self.device,dtype=torch.float)
+    #     current_Ld = torch.from_numpy(self._calc_current_Ld(id_, iq_)).to(device=self.device,dtype=torch.float)
+    #     current_Lq = torch.from_numpy(self._calc_current_Lq(id_, iq_)).to(device=self.device,dtype=torch.float)
+    #     P_pred = torch.matmul(coefs[0], current_P)
+    #     Ld_pred = torch.matmul(coefs[1], current_Ld)
+    #     Lq_pred = torch.matmul(coefs[2], current_Lq)
+    #     return P_pred, Ld_pred, Lq_pred
 
     def _torque_calculation(self, Ia, beta, coefs, calc_grad=False):
         P_pred, Ld_pred, Lq_pred = self._motor_parameter_calculation_grad(Ia, beta, coefs) if calc_grad else self._motor_parameter_calculation(Ia, beta, coefs)

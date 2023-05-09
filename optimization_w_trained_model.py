@@ -347,10 +347,10 @@ params_prediction = {
     'param_scaling': pd.read_csv(params_data['path_data']+'\\'+params_data['scaling_parameters']+'_2D.csv'),
 }
 
-evaln = evaluation.Evaluate(
-    regression_model_motorparameter=model_flux,
-    regression_model_ironloss=model_ironloss,
-    **params_prediction)
+# evaln = evaluation.Evaluate(
+#     regression_model_motorparameter=model_flux,
+#     regression_model_ironloss=model_ironloss,
+#     **params_prediction)
 
 
 #%%
@@ -467,6 +467,18 @@ f.optimize(
     torque1='197, 3000', torque2='40, 11000', 
     efficiency1='20, 3500', efficiency2='20, 11000'
 )
+
+#%%
+
+
+
+#%%
+
+
+
+#%%
+
+
 
 #%%
 
