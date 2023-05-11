@@ -142,7 +142,7 @@ class Evaluate:
         id_scaled = self._scaling(id_,'id')
         iq_scaled = self._scaling(iq_,'iq')
         parameters = np.vstack((id_scaled, iq_scaled, np.repeat(self.TEMP_PM, dim))).T
-        print(parameters)
+        # print(parameters)
         # parameters = np.concatenate([[id_scaled, iq_scaled], [self.TEMP_PM]])
         # print(parameters.shape)
         # print(torch.tensor(parameters, dtype=torch.float32).to(self.device).shape)
@@ -168,7 +168,7 @@ class Evaluate:
     def _torque_calculation(self, Ia, beta, encoded_img, calc_grad=False):
         # P_pred, Ld_pred, Lq_pred = self._motor_parameter_calculation_grad(Ia, beta, coefs) if calc_grad else self._motor_parameter_calculation(Ia, beta, coefs)
         psi_d, psi_q = self._flux_calculation(Ia, beta, encoded_img)
-        print(psi_d, psi_q)
+        # print(psi_d, psi_q)
         return self.Pn*(Ia*psi_d*self._cos(beta)+Ia*psi_q*self._sin(beta))
 
     def _speed_limit_calculation(self, Ia, beta, encoded_img):

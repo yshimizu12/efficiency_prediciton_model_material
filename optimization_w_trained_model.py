@@ -40,7 +40,7 @@ params_flux = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305091901_pred_flux_brhc_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_flux_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -66,7 +66,7 @@ params_ironloss = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305091905_pred_ironloss_brhc_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_ironloss_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -393,7 +393,7 @@ evaln = evaluation.Evaluate(
     **params_prediction)
 
 #%%
-path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
+path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000100.png'
 img = Image.open(path_img)
 img = np.array(img)
 rotor_image_tensor = torch.from_numpy(np.array([
@@ -401,11 +401,13 @@ rotor_image_tensor = torch.from_numpy(np.array([
 ])).clone().to(device)
 
 encoded_img = evaln._calc_encoded_img(rotor_image_tensor)
-beta = np.arange(0,91,5)
+beta = np.arange(0,91,1)
 torque = [evaln._torque_calculation(300, b, encoded_img[0]) for b in beta]
 plt.plot(beta, torque)
 
-# evaln.evaluation(img, 'hoge')
+#%%
+
+evaln.evaluation(img, 'hoge')
 # evaln.create_efficiency_map(rotor_image_tensor)
 #%%
 
