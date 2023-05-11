@@ -30,7 +30,7 @@ from torchvision import models, transforms
 # from sklearn.metrics import accuracy_score
 from lightweight_gan.lightweight_gan import Trainer
 
-import evaluation
+import evaluation_torque
 import prediction_model
 
 #%%
@@ -88,6 +88,32 @@ dir_model = params_ironloss['base_dir_model']
 with open(f'{dir_model}params.pkl', "rb") as tf:
     params_ = pickle.load(tf)
 params_ironloss.update(params_)
+
+params_torque = {
+    'modelname':'swin_t',
+    'typename':'transfer_learning',
+    'pathmodel':None,
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305101331_pred_torque_brhc_swin_t_w_params\\',
+    'trained_model': 'model_100_0.pt',
+    'batch_size': 128,
+    # 'weight_decay': 0.001,
+    # 'epochs_optuna': 20,
+    'epochs_check': 100,
+    'save_every': 100,
+    # 'hidden_dim_init': 8,
+    # 'num_hidden_dims': 2,
+    # 'hidden_dim_out': 50,
+    # 'hidden_dim_other': 10,
+    # 'num_hidden_dims2': 2,
+    # 'hidden_dim_out2': 50,
+    # 'hidden_dim_other2': 12,
+    'learning_rate': 0.004,
+    'times': 1,
+}
+dir_model = params_torque['base_dir_model']
+with open(f'{dir_model}params.pkl', "rb") as tf:
+    params_ = pickle.load(tf)
+params_torque.update(params_)
 
 params_gan = {
     'path_generator': f'{base_dir}_GAN\\230503\\models\\2D-V-Nabla-2U\\model_25.pt',
@@ -322,6 +348,75 @@ class RegressionIronLoss(nn.Module):
         y3 = self.out3(x3)
         return y1, y2, y3
 
+
+class RegressionTorque(nn.Module):
+    def __init__(
+            self,
+            current_dim=2,
+            speed_dim=1,
+            pm_temp_dim=1,
+            pm_material_dim=6,
+            hidden_dim_init=6,
+            num_hidden_dims=3,
+            hidden_dim_out=50,
+            hidden_dim_other=25,
+            output_dim1=1,
+            activation_type='ReLU',
+            **kwargs,
+        ):
+        super().__init__()
+        ## init
+        self.model_ft = prediction_model.model(params_torque['modelname'], params_torque['typename'], params_torque['pathmodel'])
+        num_ftrs = 1000
+        self.linear1 = nn.Linear(num_ftrs, hidden_dim_init)
+        self.bn1 = nn.BatchNorm1d(hidden_dim_init)
+        ## torque
+        hidden_dims = [hidden_dim_other]*num_hidden_dims
+        hidden_dims[-1] = hidden_dim_out
+        linear_list1 = []
+        batch_norm_list1 = []
+        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim#+speed_dim
+        for hidden_dim in hidden_dims:
+            linear_list1.append(nn.Linear(hidden_dim_before, hidden_dim))
+            batch_norm_list1.append(nn.BatchNorm1d(hidden_dim))
+            hidden_dim_before = hidden_dim
+        self.linear_list1 = nn.ModuleList(linear_list1)
+        self.batch_norm_list1 = nn.ModuleList(batch_norm_list1)
+        self.out1 = nn.Linear(hidden_dim_before, output_dim1)
+        ## activation
+        if activation_type=='ReLU':
+            self.activation = F.relu
+        elif activation_type=='ELU':
+            self.activation = F.elu
+        else:
+            raise NotImplementedError(f'activation type "{activation_type}" is unknown')
+
+
+    def forward(self, image, parameters, pm_material):
+        x = self.forward1(image)
+        y1 = self.forward2(x, parameters, pm_material)
+        return y1
+
+    def forward1(self, image):
+        ## image
+        x = self.model_ft(image)
+        x = self.linear1(x)
+        x = self.bn1(x)
+        x = self.activation(x)
+        return x
+
+    def forward2(self, x, parameters, pm_material):
+        ## image
+        x = torch.cat([x,parameters], axis=1)
+        # x = torch.cat([x,pm_temp], axis=1)
+        x = torch.cat([x,pm_material], axis=1)
+        for i, (f, bn) in enumerate(zip(self.linear_list1, self.batch_norm_list1)):
+            x1 = f(x1) if i > 0 else f(x)
+            x1 = bn(x1)
+            x1 = self.activation(x1)
+        y1 = self.out1(x1)
+        return y1
+
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -336,6 +431,12 @@ model_ironloss.load_state_dict(torch.load(
     params_ironloss['base_dir_model']+params_ironloss['trained_model'], map_location=torch.device(device)
 ))
 model_ironloss.eval()
+
+model_torque = RegressionTorque(**params_torque).to(device)
+model_torque.load_state_dict(torch.load(
+    params_torque['base_dir_model']+params_torque['trained_model'], map_location=torch.device(device)
+))
+model_torque.eval()
 
 #%%
 trainer = Trainer(
@@ -358,7 +459,7 @@ params_prediction = {
     'RPM_max': 10000, # 0~30000
     'TEMP_PM': 100, # 0~200
     'PM_material': 'NMX-S49CH',
-    'Vdc': 600,
+    'Vdc': 650,
     'Ra': 0.1,
     'Pn': 4,
     'device': device,
@@ -388,29 +489,23 @@ for n in PM_names:
 params_prediction['PM_data'] = PM_data
 params_prediction['PM_class'] = PM_class
 
-evaln = evaluation.Evaluate(
+evaln = evaluation_torque.Evaluate(
     model_flux=model_flux,
     model_ironloss=model_ironloss,
+    model_torque=model_torque,
     **params_prediction)
 
 #%%
 path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
 img = Image.open(path_img)
-# img = np.array(img)
-# rotor_image_tensor = torch.from_numpy(np.array([
-#     img.transpose(2,0,1).astype(np.float32)
-# ])).clone().to(device)
-
-image_size = 256
-transform = transforms.Compose([
-    transforms.Resize(image_size),
-    transforms.ToTensor(),
-])
-rotor_image_tensor = transform(img)
+img = np.array(img)
+rotor_image_tensor = torch.from_numpy(np.array([
+    img.transpose(2,0,1).astype(np.float32)
+])).clone().to(device)
 
 encoded_img = evaln._calc_encoded_img(rotor_image_tensor)
 beta = np.arange(0,91,1)
-torque = [evaln._torque_calculation(300, b, encoded_img[0]) for b in beta]
+torque = [evaln._torque_calculation(300, b, encoded_img[2]) for b in beta]
 plt.plot(beta, torque)
 
 #%%

@@ -32,7 +32,7 @@ import prediction_model
 
 #%%
 def result_name(modelname):
-    return f'pred_flux_brhc_{modelname}_w_params_torque_MSE'
+    return f'pred_flux_brhc_{modelname}_w_params_torque_MSE3'
 
 params = {
     'batch_size': 128,
@@ -305,11 +305,11 @@ def compute_loss(label, pred):
 def train_step(x1, x2, x3, t1, t2, t3, x4, x5, model, optimizer):
     model.train()
     preds = model(x1, x2, x3)
-    t1 = t1.unsqueeze(1)
-    t2 = t2.unsqueeze(1)
+    # t1 = t1.unsqueeze(1)
+    # t2 = t2.unsqueeze(1)
     # t3 = t3.unsqueeze(1)
-    loss1 = compute_loss(t1, preds[0])
-    loss2 = compute_loss(t2, preds[1])
+    # loss1 = compute_loss(t1, preds[0])
+    # loss2 = compute_loss(t2, preds[1])
     psi_d = unscaling(preds[0], 'Psi_d')
     psi_q = unscaling(preds[1], 'Psi_q')
     # print(x4)
@@ -317,28 +317,28 @@ def train_step(x1, x2, x3, t1, t2, t3, x4, x5, model, optimizer):
     id_ = unscaling(x4.unsqueeze(1), 'id')
     iq_ = unscaling(x5.unsqueeze(1), 'iq')
     torque = params_data['Pn']*(iq_*psi_d-id_*psi_q)
-    loss3 = compute_loss(t3, scaling(torque, 'T_avg'))
+    loss = compute_loss(t3, scaling(torque, 'T_avg'))
     optimizer.zero_grad()
-    loss = loss1 + loss2 + loss3
+    # loss = loss1 + loss2 + loss3
     # print(loss)
     loss.backward()
     optimizer.step()
-    return (loss1, loss2, loss3), preds
+    return loss, preds
 def valid_step(x1, x2, x3, t1, t2, t3, x4, x5, model):
     model.eval()
     preds = model(x1, x2, x3)
-    t1 = t1.unsqueeze(1)
-    t2 = t2.unsqueeze(1)
+    # t1 = t1.unsqueeze(1)
+    # t2 = t2.unsqueeze(1)
     # t3 = t3.unsqueeze(1)
-    loss1 = compute_loss(t1, preds[0])
-    loss2 = compute_loss(t2, preds[1])
+    # loss1 = compute_loss(t1, preds[0])
+    # loss2 = compute_loss(t2, preds[1])
     psi_d = unscaling(preds[0], 'Psi_d')
     psi_q = unscaling(preds[1], 'Psi_q')
     id_ = unscaling(x4.unsqueeze(1), 'id')
     iq_ = unscaling(x5.unsqueeze(1), 'iq')
     torque = params_data['Pn']*(iq_*psi_d-id_*psi_q)
-    loss3 = compute_loss(t3, scaling(torque, 'T_avg'))
-    return (loss1, loss2, loss3), preds
+    loss = compute_loss(t3, scaling(torque, 'T_avg'))
+    return loss, preds
 
 def main(modelname, typename, pathmodel=None):
     params['modelname'] = modelname
@@ -393,29 +393,29 @@ def main(modelname, typename, pathmodel=None):
         time_start = time.time()
         for epoch in range(epochs):
             train_loss1 = 0.
-            train_loss2 = 0.
-            train_loss3 = 0.
+            # train_loss2 = 0.
+            # train_loss3 = 0.
             valid_loss1 = 0.
-            valid_loss2 = 0.
-            valid_loss3 = 0.
+            # valid_loss2 = 0.
+            # valid_loss3 = 0.
             for (x1, x2, x3, t1, t2, t3, x4, x5) in train_loader:
                 x1, x2, x3, t1, t2, t3, x4, x5 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device), t3.to(device), x4.to(device), x5.to(device)
                 loss, _ = train_step(x1, x2, x3, t1, t2, t3, x4, x5, model, optimizer)
-                train_loss1 += loss[0].item()
-                train_loss2 += loss[1].item()
-                train_loss3 += loss[2].item()
+                train_loss1 += loss.item()
+                # train_loss2 += loss[1].item()
+                # train_loss3 += loss[2].item()
             train_loss1 /= len(train_loader)
-            train_loss2 /= len(train_loader)
-            train_loss3 /= len(train_loader)
+            # train_loss2 /= len(train_loader)
+            # train_loss3 /= len(train_loader)
             for (x1, x2, x3, t1, t2, t3, x4, x5) in valid_loader:
                 x1, x2, x3, t1, t2, t3, x4, x5 = x1.to(device), x2.to(device), x3.to(device), t1.to(device), t2.to(device), t3.to(device), x4.to(device), x5.to(device)
                 loss, _ = valid_step(x1, x2, x3, t1, t2, t3, x4, x5, model)
-                valid_loss1 += loss[0].item()
-                valid_loss2 += loss[1].item()
-                valid_loss3 += loss[2].item()
+                valid_loss1 += loss.item()
+                # valid_loss2 += loss[1].item()
+                # valid_loss3 += loss[2].item()
             valid_loss1 /= len(valid_loader)
-            valid_loss2 /= len(valid_loader)
-            valid_loss3 /= len(valid_loader)
+            # valid_loss2 /= len(valid_loader)
+            # valid_loss3 /= len(valid_loader)
             elapsed_time = time.time()-time_start
             print('Epoch: {}, Train rmse: {}, Valid rmse: {}, Elapsed time: {:.1f}sec'.format(
                 epoch+1,
@@ -428,11 +428,11 @@ def main(modelname, typename, pathmodel=None):
             results.append([
                 epoch+1,
                 train_loss1,
-                train_loss2,
-                train_loss3,
+                # train_loss2,
+                # train_loss3,
                 valid_loss1,
-                valid_loss2,
-                valid_loss3,
+                # valid_loss2,
+                # valid_loss3,
                 elapsed_time
             ])
             if (epoch+1) % save_every == 0: save_model(model.state_dict(), epoch+1, t)

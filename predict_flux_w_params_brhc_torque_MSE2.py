@@ -32,7 +32,7 @@ import prediction_model
 
 #%%
 def result_name(modelname):
-    return f'pred_flux_brhc_{modelname}_w_params_torque_MSE'
+    return f'pred_flux_brhc_{modelname}_w_params_torque_MSE2'
 
 params = {
     'batch_size': 128,
@@ -49,6 +49,7 @@ params = {
     'hidden_dim_out': 50,
     'hidden_dim_out2': 50,
     'times': 1,
+    'weight': [0.1,0.1,0.8],
 }
 
 #==============================
@@ -299,6 +300,7 @@ def scaling(x, col):
 def unscaling(x, col):
     return x*df_sp.loc['std',col]+df_sp.loc['mean',col]
 
+weight = params['weight']
 def compute_loss(label, pred):
     # print(pred.float(), label.float())
     return nn.MSELoss()(pred.float(), label.float())
@@ -319,7 +321,7 @@ def train_step(x1, x2, x3, t1, t2, t3, x4, x5, model, optimizer):
     torque = params_data['Pn']*(iq_*psi_d-id_*psi_q)
     loss3 = compute_loss(t3, scaling(torque, 'T_avg'))
     optimizer.zero_grad()
-    loss = loss1 + loss2 + loss3
+    loss = loss1*weight[0] + loss2*weight[1] + loss3*weight[2]
     # print(loss)
     loss.backward()
     optimizer.step()
