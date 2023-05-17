@@ -37,7 +37,6 @@ class Evaluate:
         self.Pn = Pn
         self.Nmax = RPM_max
         self.N_interval = 1000 if self.Nmax >= 10000 else self.Nmax//10
-        self.TEMP_PM = TEMP_PM
         self.device = device
         # self.sp = sp
         self.param_scaling = param_scaling
@@ -45,7 +44,8 @@ class Evaluate:
         self._elec_params_setting(Ie_max, Vdc)
         self._init_envs_matplotlib()
         self.pm_material = self._init_PM_material(TEMP_PM, PM_material, PM_data, PM_class)
-
+        self.TEMP_PM = self._scaling(TEMP_PM, 'PM_TEMP')
+        
     def evaluation(self, img, filename):
         img = np.array(img)
         rotor_image_tensor = torch.from_numpy(np.array([

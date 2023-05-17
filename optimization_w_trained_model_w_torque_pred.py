@@ -456,9 +456,9 @@ GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
 #%%
 params_prediction = {
     'Ie_max': 300, # 0~800/(2**0.5)
-    'RPM_max': 10000, # 0~30000
-    'TEMP_PM': 100, # 0~200
-    'PM_material': 'NMX-S49CH',
+    'RPM_max': 20000, # 0~30000
+    'TEMP_PM': 152.001287237987, # 0~200
+    'PM_material': 'NMX-K30ER',
     'Vdc': 650,
     'Ra': 0.1,
     'Pn': 4,

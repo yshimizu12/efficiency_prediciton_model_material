@@ -37,6 +37,8 @@ params_flux = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
+    # 'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305112012_pred_flux_brhc_swin_t_w_params_torque_MSE2\\',
+    # 'trained_model': 'model_500_0.pt',
     'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_flux_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
@@ -93,6 +95,7 @@ params_data = {
     'fnames': ['2D', '2U', 'V', 'Nabla'],
     # 'image_size': 256,
     'data_number': 'dataset_number_scaled',
+    'data_number2': 'dataset_number',
     'data_class': 'dataset_class',
     'data_image': 'dataset_image',
     # 'data_PM': 'dataset_material_PM_dummies',
@@ -172,14 +175,22 @@ class RegressionFlux(nn.Module):
         else:
             raise NotImplementedError(f'activation type "{activation_type}" is unknown')
 
-    def forward(self, image, parameters, pm_material): # current: 2-dim
+    def forward(self, image, parameters, pm_material):
+        x = self.forward1(image)
+        y1, y2 = self.forward2(x, parameters, pm_material)
+        return y1, y2
+
+    def forward1(self, image):
         ## image
         x = self.model_ft(image)
         x = self.linear1(x)
         x = self.bn1(x)
         x = self.activation(x)
+        return x
+
+    def forward2(self, x, parameters, pm_material):
+        ## image
         x = torch.cat([x,parameters], axis=1)
-        # x = torch.cat([x,speed], axis=1)
         # x = torch.cat([x,pm_temp], axis=1)
         x = torch.cat([x,pm_material], axis=1)
         for i, (f, bn) in enumerate(zip(self.linear_list1, self.batch_norm_list1)):
@@ -192,7 +203,7 @@ class RegressionFlux(nn.Module):
             x2 = self.activation(x2)
         y1 = self.out1(x1)
         y2 = self.out2(x2)
-        return y1, y2 # Psi_d, Psi_q
+        return y1, y2
 
 class RegressionIronLoss(nn.Module):
     def __init__(
@@ -274,14 +285,19 @@ class RegressionIronLoss(nn.Module):
             raise NotImplementedError(f'activation type "{activation_type}" is unknown')
 
     def forward(self, image, parameters, pm_material): # current: 2-dim
-        ## image
+        x = self.forward1(image)
+        y1, y2, y3 = self.forward2(x, parameters, pm_material)
+        return y1, y2, y3 # hysteresis, joule, pm_joule
+
+    def forward1(self, image):
         x = self.model_ft(image)
         x = self.linear1(x)
         x = self.bn1(x)
         x = self.activation(x)
+        return x
+
+    def forward2(self, x, parameters, pm_material):
         x = torch.cat([x,parameters], axis=1)
-        # x = torch.cat([x,speed], axis=1)
-        # x = torch.cat([x,pm_temp], axis=1)
         x = torch.cat([x,pm_material], axis=1)
         for i, (f, bn) in enumerate(zip(self.linear_list1, self.batch_norm_list1)):
             x1 = f(x1) if i > 0 else f(x)
@@ -298,7 +314,7 @@ class RegressionIronLoss(nn.Module):
         y1 = self.out1(x1)
         y2 = self.out2(x2)
         y3 = self.out3(x3)
-        return y1, y2, y3 # hysteresis, joule, pm_joule
+        return y1, y2, y3
 
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -323,7 +339,9 @@ class ImageDataset(Dataset):
         folder_image = params_data['folder_image']
         fnames = params_data['fnames']
         data_number = params_data['data_number']
+        data_number2 = params_data['data_number2']
         data_image = params_data['data_image']
+        data_class = params_data['data_class']
         # data_PM = params_data['data_PM']
         ## image
         image_size = params_data['image_size']
@@ -346,6 +364,7 @@ class ImageDataset(Dataset):
             'speed': 'RPM',
             'flux': ['Psi_d','Psi_q'],
             'ironloss': ['W_e_pm', 'W_e_core', 'W_h_core'],
+            'torque': 'T_avg',
             'pm_material': ['Coercivity','Remanence', 'Recoil', 'Drooping', 'Radius', 'PM_RESISTANCE'],
         }
         self.labels = {}
@@ -355,7 +374,6 @@ class ImageDataset(Dataset):
             df = pd.read_csv(path_data/f'{data_number}_{fname}.csv')
             for key, val in data_info.items():
                 self.labels[key] = pd.concat((self.labels[key], df[val]), axis=0)
-        ## label_pm_material
         # key = 'pm_material'
         # self.labels[key] = pd.DataFrame()
         # for fname in fnames:
@@ -364,6 +382,33 @@ class ImageDataset(Dataset):
         #     ), axis=0)
         for key in self.labels.keys():
             self.labels[key] = self.labels[key].values
+        data_info2 = {
+            'flux': ['Psi_d','Psi_q'],
+            'ironloss': ['W_e_pm', 'W_e_core', 'W_h_core'],
+            'torque': 'T_avg',
+        }
+        self.labels2 = {}
+        for key in data_info2.keys():
+            self.labels2[key] = pd.DataFrame()
+        for fname in fnames:
+            df = pd.read_csv(path_data/f'{data_number2}_{fname}.csv')
+            for key, val in data_info2.items():
+                self.labels2[key] = pd.concat((self.labels2[key], df[val]), axis=0)        ## label_pm_material
+        for key in self.labels2.keys():
+            self.labels2[key] = self.labels2[key].values
+        data_info_pm = {
+            'pm': 'material_PM',
+        }
+        self.labels_pm = {}
+        for key in data_info_pm.keys():
+            self.labels_pm[key] = pd.DataFrame()
+        for fname in fnames:
+            df = pd.read_csv(path_data/f'{data_class}_{fname}.csv')
+            for key, val in data_info_pm.items():
+                self.labels_pm[key] = pd.concat((self.labels_pm[key], df[val]), axis=0)
+        for key in self.labels_pm.keys():
+            self.labels_pm[key] = self.labels_pm[key].values
+
     def __len__(self):
         return len(self.paths)
     def __getitem__(self, index):
@@ -377,6 +422,13 @@ class ImageDataset(Dataset):
         pm_material = self.labels['pm_material'][index]
         psi_d, psi_q = self.labels['flux'][index]
         pm_joule, joule, hysteresis = self.labels['ironloss'][index]
+        torque = self.labels['torque'][index]
+
+        psi_d2, psi_q2 = self.labels2['flux'][index]
+        pm_joule2, joule2, hysteresis2 = self.labels2['ironloss'][index]
+        torque2 = self.labels2['torque'][index]
+
+        pm_name = self.labels_pm['pm'][index]
 
         return (
             self.transform(img),
@@ -387,6 +439,14 @@ class ImageDataset(Dataset):
             torch.tensor(hysteresis, dtype=torch.float32),
             torch.tensor(joule, dtype=torch.float32),
             torch.tensor(pm_joule, dtype=torch.float32),
+            torch.tensor(torque, dtype=torch.float32),
+            psi_d2,
+            psi_q2,
+            hysteresis2,
+            joule2,
+            pm_joule2,
+            torque2,
+            pm_name,
         )
 
 # def set_data_src():
@@ -415,8 +475,17 @@ preds_psi_dq_all = []
 data_psi_dq_all = []
 preds_ironloss_all = []
 data_ironloss_all = []
+# preds_torque_all = []
+data_torque_all = []
+
+data_psi_dq_all2 = []
+data_ironloss_all2 = []
+data_torque_all2 = []
+
+data_idq_all = []
+
 # indices = range(0, len(dataset), 1000)
-indices = range(0, len(valid_dataset), 100)
+indices = range(0, len(valid_dataset), 1000)
 for i in tqdm(indices):
 # for data in tqdm(valid_dataset):
     # data = dataset[i]
@@ -436,6 +505,11 @@ for i in tqdm(indices):
             data[5:8]
         ).to('cpu').detach().numpy().copy() 
     )
+    data_torque_all.append(
+        torch.tensor(
+            float(data[8])
+        ).to('cpu').detach().numpy().copy() 
+    )
     preds_psi_dq_all.append(
         torch.tensor(
             model_flux(img, x2_f, pm_material)
@@ -446,10 +520,37 @@ for i in tqdm(indices):
             model_ironloss(img, x2, pm_material)
         ).to('cpu').detach().numpy().copy() 
     )
+    # preds_torque_all.append(
+    #     torch.tensor(
+    #         model_torque(img, x2_f, pm_material)
+    #     ).to('cpu').detach().numpy().copy()[0]
+    # )
+    data_psi_dq_all2.append(
+        data[9:11]
+    )
+    data_ironloss_all2.append(
+        data[11:14]
+    )
+    data_torque_all2.append(
+        data[14]
+    )
+
+    data_idq_all.append(
+        x2[0,:2].to('cpu').detach().numpy().copy()
+    )
 preds_psi_dq_all = np.array(preds_psi_dq_all)
 data_psi_dq_all = np.array(data_psi_dq_all)
 preds_ironloss_all = np.array(preds_ironloss_all)
 data_ironloss_all = np.array(data_ironloss_all)
+# preds_torque_all = np.array(preds_torque_all)
+data_torque_all = np.array(data_torque_all)
+
+data_psi_dq_all2 = np.array(data_psi_dq_all2)
+data_ironloss_all2 = np.array(data_ironloss_all2)
+data_torque_all2 = np.array(data_torque_all2)
+
+data_idq_all = np.array(data_idq_all)
+
 
 # %%
 preds_all = np.hstack((preds_psi_dq_all,preds_ironloss_all)).T
@@ -463,6 +564,314 @@ for p, d in zip(preds_all, data_all):
     mse = mean_squared_error(d, p)
     plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
     plt.show()
+
+#%%
+df_sp = pd.read_csv('..\\_data_motor\\dataset_scaling_parameter_all.csv')
+df_sp.index = ['mean','std']
+
+data_all2 = np.hstack((data_psi_dq_all2,data_ironloss_all2,data_torque_all2)).T
+
+def _scaling(x, col):
+    return (np.array(x)-df_sp.loc['mean',col])/df_sp.loc['std',col]
+def _unscaling(x, col):
+    return np.array(x)*df_sp.loc['std',col]+df_sp.loc['mean',col]
+names = ['Psi_d','Psi_q','W_h_core','W_e_core','W_e_pm','T_avg']
+
+for p, d, n in zip(data_all, data_all2, names):
+    d_ = _scaling(d, n)
+    plt.plot(p, d_, 'bo', ms=3)
+    plt.plot([d_.min(), d_.max()], [d_.min(), d_.max()], 'k--')
+    r2 = r2_score(d_, p)
+    mse = mean_squared_error(d_, p)
+    plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+    plt.show()
+
+
+#%%
+for p, d, n in zip(preds_all, data_all, names):
+    p_ = _unscaling(p, n)
+    d_ = _unscaling(d, n)
+    plt.plot(p_, d_, 'bo', ms=3)
+    plt.plot([d_.min(), d_.max()], [d_.min(), d_.max()], 'k--')
+    r2 = r2_score(d_, p_)
+    mse = mean_squared_error(d_, p_)
+    plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+    plt.show()
+
+#%% ==========================================================
+def compare_pred_and_anal(p, d, n):
+    p_ = _unscaling(p, n)
+    d_ = _unscaling(d, n)
+    plt.plot(p_, d_, 'bo', ms=3)
+    plt.plot([d_.min(), d_.max()], [d_.min(), d_.max()], 'k--')
+    r2 = r2_score(d_, p_)
+    mse = mean_squared_error(d_, p_)
+    plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+    plt.show()
+
+import re
+import evaluation
+
+params_prediction = {
+    'Ie_max': 300, # 0~800/(2**0.5)
+    'RPM_max': 5000, # 0~30000
+    # 'TEMP_PM': 40, # 0~200
+    # 'PM_material': 'R33H',
+    'Vdc': 650,
+    'Ra': 0.1,
+    'Pn': 4,
+    'device': device,
+    'include_pm_joule': False,
+    'path_param_scaling': params_data['path_data']+'\\dataset_scaling_parameter_all.csv',
+}
+df_sp = pd.read_csv(params_prediction['path_param_scaling'])
+df_sp.index = ['mean','std']
+params_prediction['param_scaling'] = df_sp
+
+data_dir = Path(f"{params_data['path_data']}\\raw\\_common_setting\\b-h_PM")
+pattern = r"b-h_(.+)\.csv"
+PM_names = [re.search(pattern, p.name).group(1) for p in data_dir.glob('*.csv')]
+PM_data = {
+    n: pd.read_csv(p) for n, p in zip(PM_names, data_dir.glob('*.csv'))
+}
+PM_class = {
+    'NMX':[],
+    'R':[],
+}
+for n in PM_names:
+    if n.startswith('NMX'):
+        PM_class['NMX'].append(n)
+    elif n.startswith('R'):
+        PM_class['R'].append(n)
+
+params_prediction['PM_data'] = PM_data
+params_prediction['PM_class'] = PM_class
+
+evaln = evaluation.Evaluate(
+    model_flux=model_flux,
+    model_ironloss=model_ironloss,
+    **params_prediction)
+
+#%%
+# data_psi_dq_all3 = []
+# pred_psi_dq_all3 = []
+# indices = range(0, len(valid_dataset), 1000)
+# for i in tqdm(indices):
+#     data = valid_dataset[i]
+#     # data_psi_dq_all3.append(
+#     #     data[9:11]
+#     # )
+#     img = data[0].to(device).unsqueeze(0)
+#     x2 = data[1].to(device).unsqueeze(0)
+#     x2_f = torch.cat((x2[:,:2], x2[:,3:]),axis=1)
+#     pm_material = data[2].to(device).unsqueeze(0)
+#     # print(x2_f, pm_material)
+#     # print(
+#     #     torch.tensor(
+#     #     model_flux(img, x2_f, pm_material)
+#     # ).to('cpu').detach().numpy().copy()
+#     # )
+#     psi_d, psi_q = torch.tensor(
+#         model_flux(img, x2_f, pm_material)
+#     ).to('cpu').detach().numpy().copy()
+#     # print(
+#     data_psi_dq_all3.append(
+#         (_unscaling(psi_d, 'Psi_d'), _unscaling(psi_q, 'Psi_q'))
+#     )
+#     # print("")
+
+#     id_ = _unscaling(float(data[1][0]), 'id')
+#     iq_ = _unscaling(float(data[1][1]), 'iq')
+#     Ia = (id_**2+iq_**2)**0.5
+#     beta = np.degrees(np.arctan(-id_/iq_))
+#     TEMP_PM = _unscaling(float(data[1][-1]), 'PM_TEMP')
+#     PM_material = data[-1][0]
+#     encoded_img = evaln._calc_encoded_img(img)
+#     evaln._set_PM_material_parameter(TEMP_PM, PM_material)
+#     # print(evaln._flux_calculation(Ia, beta, encoded_img[0]))
+#     psi_d, psi_q = evaln._flux_calculation(Ia, beta, encoded_img[0])
+#     pred_psi_dq_all3 .append(
+#         (float(psi_d), float(psi_q))
+#     )
+
+preds_psi_dq_all = []
+data_psi_dq_all = []
+preds_ironloss_all = []
+data_ironloss_all = []
+# preds_torque_all = []
+data_torque_all = []
+
+data_psi_dq_all2 = []
+data_ironloss_all2 = []
+data_torque_all2 = []
+
+data_idq_all = []
+
+# data_psi_dq_all3 = []
+pred_psi_dq_all_eval_scaled = []
+pred_psi_dq_all_eval_unscaled = []
+
+# indices = range(0, len(dataset), 1000)
+indices = range(0, len(valid_dataset), 1000)
+for i in tqdm(indices):
+# for data in tqdm(valid_dataset):
+    # data = dataset[i]
+    data = valid_dataset[i]
+    img = data[0].to(device).unsqueeze(0)
+    x2 = data[1].to(device).unsqueeze(0)
+    x2_f = torch.cat((x2[:,:2], x2[:,3:]),axis=1)
+    pm_material = data[2].to(device).unsqueeze(0)
+    
+    data_psi_dq_all.append(
+        torch.tensor(
+            data[3:5]
+        ).to('cpu').detach().numpy().copy() 
+    )
+    data_ironloss_all.append(
+        torch.tensor(
+            data[5:8]
+        ).to('cpu').detach().numpy().copy() 
+    )
+    data_torque_all.append(
+        torch.tensor(
+            float(data[8])
+        ).to('cpu').detach().numpy().copy() 
+    )
+    preds_psi_dq_all.append(
+        torch.tensor(
+            model_flux(img, x2_f, pm_material)
+        ).to('cpu').detach().numpy().copy() 
+    )
+    preds_ironloss_all.append(
+        torch.tensor(
+            model_ironloss(img, x2, pm_material)
+        ).to('cpu').detach().numpy().copy() 
+    )
+    # preds_torque_all.append(
+    #     torch.tensor(
+    #         model_torque(img, x2_f, pm_material)
+    #     ).to('cpu').detach().numpy().copy()[0]
+    # )
+    data_psi_dq_all2.append(
+        data[9:11]
+    )
+    data_ironloss_all2.append(
+        data[11:14]
+    )
+    data_torque_all2.append(
+        data[14]
+    )
+
+    data_idq_all.append(
+        x2[0,:2].to('cpu').detach().numpy().copy()
+    )
+
+    id_ = _unscaling(float(data[1][0]), 'id')
+    iq_ = _unscaling(float(data[1][1]), 'iq')
+    Ia = (id_**2+iq_**2)**0.5
+    beta = np.degrees(np.arctan(-id_/iq_))
+    TEMP_PM = _unscaling(float(data[1][-1]), 'PM_TEMP')
+    PM_material = data[-1][0]
+    encoded_img = evaln._calc_encoded_img(img)
+    evaln._set_PM_material_parameter(TEMP_PM, PM_material)
+    # print(evaln._flux_calculation(Ia, beta, encoded_img[0]))
+    psi_d, psi_q = evaln._flux_calculation(Ia, beta, encoded_img[0])
+    pred_psi_dq_all_eval_unscaled.append(
+        (float(psi_d), float(psi_q))
+    )
+    pred_psi_dq_all_eval_scaled.append(
+        (_scaling(float(psi_d),'Psi_d'), _scaling(float(psi_q),'Psi_q'))
+    )
+
+preds_psi_dq_all = np.array(preds_psi_dq_all)
+data_psi_dq_all = np.array(data_psi_dq_all)
+preds_ironloss_all = np.array(preds_ironloss_all)
+data_ironloss_all = np.array(data_ironloss_all)
+# preds_torque_all = np.array(preds_torque_all)
+data_torque_all = np.array(data_torque_all)
+
+data_psi_dq_all2 = np.array(data_psi_dq_all2)
+data_ironloss_all2 = np.array(data_ironloss_all2)
+data_torque_all2 = np.array(data_torque_all2)
+
+data_idq_all = np.array(data_idq_all)
+
+pred_psi_dq_all_eval_scaled = np.array(pred_psi_dq_all_eval_scaled)
+pred_psi_dq_all_eval_unscaled = np.array(pred_psi_dq_all_eval_unscaled)
+
+#%%
+
+# preds_all = np.hstack((preds_psi_dq_all,preds_ironloss_all)).T
+# data_all = np.hstack((data_psi_dq_all,data_ironloss_all)).T
+preds_all = preds_psi_dq_all.T
+data_all = data_psi_dq_all.T
+for p, d in zip(preds_all, data_all):
+    plt.plot(p, d, 'bo', ms=3)
+    plt.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
+    r2 = r2_score(d, p)
+    mse = mean_squared_error(d, p)
+    plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+    plt.show()
+
+print('')
+
+preds_all = pred_psi_dq_all_eval_scaled.T
+data_all = data_psi_dq_all.T
+for p, d in zip(preds_all, data_all):
+    plt.plot(p, d, 'bo', ms=3)
+    plt.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
+    r2 = r2_score(d, p)
+    mse = mean_squared_error(d, p)
+    plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+    plt.show()
+
+
+# for p, d in zip(pred_psi_dq_all3.T, data_psi_dq_all3.T):
+#     plt.plot(p, d, 'bo', ms=3)
+#     plt.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
+#     r2 = r2_score(d, p)
+#     mse = mean_squared_error(d, p)
+#     plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+#     plt.show()
+
+
+#%%
+
+
+#%%
+
+
+
+
+#%%
+Pn = 4
+id_ = data_idq_all[:,0]
+iq_ = data_idq_all[:,1]
+id__ = _unscaling(id_, 'id')
+iq__ = _unscaling(iq_, 'iq')
+psi_d = preds_all[0]
+psi_q = preds_all[1]
+psi_d_ = _unscaling(psi_d, 'Psi_d')
+psi_q_ = _unscaling(psi_q, 'Psi_q')
+torque = Pn*(iq__*psi_d_-id__*psi_q_)
+
+# d_ = _unscaling(d, n)
+d = data_all2[5]
+plt.plot(torque, d, 'bo', ms=3)
+plt.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
+r2 = r2_score(d, torque)
+mse = mean_squared_error(d, torque)
+plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+plt.show()
+
+
+
+
+#%%
+
+
+#%%
+
 
 
 #%%

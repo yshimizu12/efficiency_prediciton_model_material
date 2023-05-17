@@ -6,10 +6,11 @@ import math
 # import datetime
 from pathlib import Path
 from tqdm import tqdm
-# import time
+import time
 import pickle
 import re
 
+import cv2
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -40,8 +41,8 @@ params_flux = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    # 'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_flux_brhc_swin_t_w_params\\',
-    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305102327_pred_flux_brhc_swin_t_w_params_torque_MSE\\',
+    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_flux_brhc_swin_t_w_params\\',
+    # 'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305112018_pred_flux_brhc_swin_t_w_params_torque_MSE3\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -348,77 +349,212 @@ trainer.init_GAN()
 GAN = trainer.GAN
 GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
 
+#%%
+x = np.ones(256)
+generated_image_ = GAN.G(torch.from_numpy(x.reshape(1,-1)).to(device=device,dtype=torch.float))
+generated_image_ = generated_image_.cpu().detach().numpy()[0].transpose(1,2,0)
+generated_image_[generated_image_>1.] = 1.
+generated_image_[generated_image_<0.] = 0.
+
+plt.imshow(generated_image_)
+
+
+# %%
+def clear_blurred_image(img):
+    img_array = np.array(img)
+    max_vals = np.max(img_array, axis=2)
+    red_pixels = np.where(img_array[:, :, 0] == max_vals)
+    green_pixels = np.where(img_array[:, :, 1] == max_vals)
+    blue_pixels = np.where(img_array[:, :, 2] == max_vals)
+    img_array[red_pixels[0], red_pixels[1], :] = [255, 0, 0]
+    img_array[green_pixels[0], green_pixels[1], :] = [0, 255, 0]
+    img_array[blue_pixels[0], blue_pixels[1], :] = [0, 0, 255]
+    return img_array
+
+def reconstruct_motor_image(img_polar, n_area=300, n_out=693, n_in=250):
+    m = img_polar.shape[0]
+    img_reconst = cv2.rotate(img_polar, cv2.ROTATE_90_CLOCKWISE)
+    img_reconst = cv2.resize(img_reconst, dsize=(m-int(n_area/n_out*m)-1,int(m/2)),interpolation=cv2.INTER_NEAREST)
+    img_red = np.zeros((int(m/2), m-int(n_in/n_out*m)-1, 3), np.uint8)
+    img_red[:, :] = (255, 0, 0)
+    x_offset = int(n_area/n_out*m)-int(n_in/n_out*m)
+    img_red[:, x_offset:] = img_reconst
+    img_reconst = img_red.copy()
+    img_reconst2 = cv2.flip(img_reconst, 0)
+    img_reconst = np.vstack((img_reconst, img_reconst2))
+    img_reconst = np.vstack((img_reconst, img_reconst))
+    img_reconst = np.vstack((img_reconst, img_reconst2))
+    img_black = np.zeros((8*m, m, 3), np.uint8)
+    x_offset = m - img_reconst.shape[1]
+    y_offset = 0
+    img_black[y_offset:y_offset+img_reconst.shape[0], x_offset:x_offset+img_reconst.shape[1]] = img_reconst
+    img_reconst = img_black.copy()
+    flags = cv2.INTER_CUBIC + cv2.WARP_FILL_OUTLIERS + cv2.WARP_POLAR_LINEAR + cv2.WARP_INVERSE_MAP
+    img_reconst = cv2.warpPolar(img_reconst, (n_out, n_out), (0, 0), n_out, flags)
+    img_reconst = cv2.flip(img_reconst, 0)
+    # black_pixels = np.where((img_reconst == [0, 0, 0]).all(axis=2))
+    # img_reconst[black_pixels] = [255, 255, 255]
+    # img_reconst[img_reconst<0] = 0
+    # img_reconst[img_reconst>200] = 255
+    # img_reconst[np.where((img_reconst == [255, 0, 0]).all(axis=2))] = [200, 200, 200]
+    # img_reconst[np.where((img_reconst == [0, 0, 255]).all(axis=2))] = [0, 0, 0]
+    # img_reconst[np.where((img_reconst == [0, 255, 0]).all(axis=2))] = [255, 255, 255]
+    black_pixels = np.where((img_reconst == [0, 0, 0]).all(axis=2))
+    max_vals = np.max(img_reconst, axis=2)
+    red_pixels = np.where(img_reconst[:, :, 0] == max_vals)
+    green_pixels = np.where(img_reconst[:, :, 1] == max_vals)
+    blue_pixels = np.where(img_reconst[:, :, 2] == max_vals)
+    img_reconst[red_pixels[0], red_pixels[1], :] = [200, 200, 200]
+    img_reconst[green_pixels[0], green_pixels[1], :] = [255, 255, 255]
+    img_reconst[blue_pixels[0], blue_pixels[1], :] = [0, 0, 0]
+    img_reconst[black_pixels] = [255, 255, 255]
+    return img_reconst
+
+
 # #%%
-# import importlib
-# importlib.reload(evaluation)
+# params_prediction = {
+#     'Ie_max': 300, # 0~800/(2**0.5)
+#     'RPM_max': 15000, # 0~30000
+#     # 'TEMP_PM': 40, # 0~200
+#     # 'PM_material': 'NMX-S49CH',
+#     'Vdc': 650,
+#     'Ra': 0.1,
+#     'Pn': 4,
+#     'device': device,
+#     'include_pm_joule': False,
+#     'path_param_scaling': params_data['path_data']+'\\'+params_data['scaling_parameters']+'_all.csv',
+# }
+# df_sp = pd.read_csv(params_prediction['path_param_scaling'])
+# df_sp.index = ['mean','std']
+# params_prediction['param_scaling'] = df_sp
 
-#%%
-params_prediction = {
-    'Ie_max': 300, # 0~800/(2**0.5)
-    'RPM_max': 10000, # 0~30000
-    'TEMP_PM': 100, # 0~200
-    'PM_material': 'NMX-S49CH',
-    'Vdc': 600,
-    'Ra': 0.1,
-    'Pn': 4,
-    'device': device,
-    'include_pm_joule': False,
-    'path_param_scaling': params_data['path_data']+'\\'+params_data['scaling_parameters']+'_all.csv',
-}
-df_sp = pd.read_csv(params_prediction['path_param_scaling'])
-df_sp.index = ['mean','std']
-params_prediction['param_scaling'] = df_sp
+# def _scaling(x, col):
+#     return (np.array(x)-df_sp.loc['mean',col])/df_sp.loc['std',col]
+# def _unscaling(x, col):
+#     return np.array(x)*df_sp.loc['std',col]+df_sp.loc['mean',col]
 
-data_dir = Path(f"{params_data['path_data']}\\raw\\_common_setting\\b-h_PM")
-pattern = r"b-h_(.+)\.csv"
-PM_names = [re.search(pattern, p.name).group(1) for p in data_dir.glob('*.csv')]
-PM_data = {
-    n: pd.read_csv(p) for n, p in zip(PM_names, data_dir.glob('*.csv'))
-}
-PM_class = {
-    'NMX':[],
-    'R':[],
-}
-for n in PM_names:
-    if n.startswith('NMX'):
-        PM_class['NMX'].append(n)
-    elif n.startswith('R'):
-        PM_class['R'].append(n)
+# data_dir = Path(f"{params_data['path_data']}\\raw\\_common_setting\\b-h_PM")
+# pattern = r"b-h_(.+)\.csv"
+# PM_names = [re.search(pattern, p.name).group(1) for p in data_dir.glob('*.csv')]
+# PM_data = {
+#     n: pd.read_csv(p) for n, p in zip(PM_names, data_dir.glob('*.csv'))
+# }
+# PM_class = {
+#     'NMX':[],
+#     'R':[],
+# }
+# for n in PM_names:
+#     if n.startswith('NMX'):
+#         PM_class['NMX'].append(n)
+#     elif n.startswith('R'):
+#         PM_class['R'].append(n)
 
-params_prediction['PM_data'] = PM_data
-params_prediction['PM_class'] = PM_class
+# params_prediction['PM_data'] = PM_data
+# params_prediction['PM_class'] = PM_class
 
-evaln = evaluation.Evaluate(
-    model_flux=model_flux,
-    model_ironloss=model_ironloss,
-    **params_prediction)
+# evaln = evaluation.Evaluate(
+#     model_flux=model_flux,
+#     model_ironloss=model_ironloss,
+#     **params_prediction)
 
-#%%
-path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
-img = Image.open(path_img)
+# #%%
+# path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
+# img = Image.open(path_img)
 # img = np.array(img)
+# plt.imshow(img)
+# plt.axis('off')
+# plt.show()
+# # img_recon = clear_blurred_image(img)
+# # plt.imshow(img_recon)
+# # plt.axis('off')
+# # plt.show()
+# img_recon = reconstruct_motor_image(img)
+# plt.imshow(img_recon)
+# plt.axis('off')
+# plt.show()
+
+# #%%
+
 # rotor_image_tensor = torch.from_numpy(np.array([
 #     img.transpose(2,0,1).astype(np.float32)
 # ])).clone().to(device)
 
-image_size = 256
-transform = transforms.Compose([
-    transforms.Resize(image_size),
-    transforms.ToTensor(),
-])
-rotor_image_tensor = transform(img)
+# df_data = pd.read_csv("D:\\program\\github\\_data_motor\\dataset_number_2D.csv")
+# df_data_scaled = pd.read_csv("D:\\program\\github\\_data_motor\\dataset_number_scaled_2D.csv")
+# df_data_pm = pd.read_csv("D:\\program\\github\\_data_motor\\dataset_class_2D.csv")
 
-encoded_img = evaln._calc_encoded_img(rotor_image_tensor)
-beta = np.arange(0,91,1)
-torque = [evaln._torque_calculation(300, b, encoded_img[0]) for b in beta]
-plt.plot(beta, torque)
+# i = 0
+# Ia,beta = df_data.loc[i][['Amp','Beta']]
+# Ia = Ia*(3/2)**0.5
 
-#%%
+# material_PM = df_data_pm.loc[i]['material_PM']
+# TEMP_PM = df_data.loc[i]['PM_TEMP']
+# evaln._set_PM_material_parameter(TEMP_PM, material_PM)
 
-evaln.evaluation(img, 'hoge')
+# encoded_img = evaln._calc_encoded_img(rotor_image_tensor)
+# torque_pred = evaln._torque_calculation(Ia, beta, encoded_img[0])
+# print(torque_pred, df_data.loc[0]['T_avg'])
+
+# psi_dq_pred = evaln._flux_calculation(Ia, beta, encoded_img[0])
+# print(np.array(psi_dq_pred).flatten(), df_data.loc[i][['Psi_d','Psi_q']].values)
+
+# #%%
+# psi_dq_pred = []
+# psi_dq_data = []
+# for i in range(30):
+#     Ia,beta = df_data.loc[i][['Amp','Beta']]
+#     Ia = Ia*(3/2)**0.5
+
+#     material_PM = df_data_pm.loc[i]['material_PM']
+#     TEMP_PM = df_data.loc[i]['PM_TEMP']
+#     evaln._set_PM_material_parameter(TEMP_PM, material_PM)
+
+#     encoded_img = evaln._calc_encoded_img(rotor_image_tensor)
+#     psi_dq_pred.append(np.array(evaln._flux_calculation(Ia, beta, encoded_img[0])).flatten())
+#     psi_dq_data.append(df_data.loc[i][['Psi_d','Psi_q']].values)
+
+# psi_dq_pred = np.array(psi_dq_pred)
+# psi_dq_data = np.array(psi_dq_data)
+
+# for j in range(2):
+#     d = psi_dq_data[:,j]
+#     p = psi_dq_pred[:,j]
+#     plt.plot(p, d, 'bo', ms=3)
+#     plt.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
+#     r2 = r2_score(d, p)
+#     mse = mean_squared_error(d, p)
+#     plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+#     plt.show()
+
+# #%%
+
+# beta = np.arange(0,91,1)
+# for i in range(3):
+#     material_PM = df_data_pm.loc[i]['material_PM']
+#     TEMP_PM = df_data.loc[i]['PM_TEMP']
+#     evaln._set_PM_material_parameter(TEMP_PM, material_PM)
+#     torque = [evaln._torque_calculation(300, b, encoded_img[0]) for b in beta]
+#     plt.plot(beta, torque)
+#     plt.show()
+
+# #%%
+# params = {
+#     'Ie_max': 134, # 0~800/(2**0.5)
+#     'RPM_max': 14000, # 0~30000
+#     'Vdc': 650,
+#     'TEMP_PM': 20, # 0~200
+#     'PM_material': 'NMX-34EH',
+#     'include_pm_joule': False,
+# }
+# evaln._elec_params_setting(params['Ie_max'], params['Vdc'])
+# evaln.Nmax = params['RPM_max']
+# evaln._set_PM_material_parameter(params['TEMP_PM'], params['PM_material'])
+
+# start = time.time()
+# evaln.evaluation(img, 'hoge')
+# print(time.time() - start)
 # evaln.create_efficiency_map(rotor_image_tensor)
 #%%
-
 plt.rcParams['font.family'] = 'Times New Roman'
 plt.rcParams['font.size'] = 13
 
@@ -443,27 +579,10 @@ plt.rcParams['ytick.right'] = False
 # dt_now = datetime.datetime.now()
 # date = dt_now.strftime('%Y%m%d')[2:]
 
-
 #%%
 import warnings
 warnings.resetwarnings()
 warnings.simplefilter('ignore', DeprecationWarning)
-
-#%%
-n_var = GAN.latent_dim
-params_optimization = {
-    'model_flux': model_flux,
-    'model_ironloss': model_ironloss,
-    'GAN': GAN,
-    'n_var': n_var,
-    'xl': np.ones(n_var)*-1000,
-    'xu': np.ones(n_var)*1000,
-}
-params_optimization['pop_size'] = 100
-params_optimization['n_offsprings'] = 20
-params_optimization['n_termination'] = 50
-params_optimization['verbose'] = True
-
 
 #%%
 def calc_pareto_front(f):
@@ -490,8 +609,9 @@ def judge_topology(img):
 
 #%%
 class Optimize:
-    def __init__(self,):
-        pass
+    def __init__(self, params_prediction, params_optimization):
+        self.params_prediction = params_prediction
+        self.params_optimization = params_optimization
     def optimize(self, Ie_max, Vdc, torque1, torque2, efficiency1, efficiency2):
         self.Ie_max = Ie_max
         self.Vdc = Vdc
@@ -515,15 +635,56 @@ class Optimize:
         params_optimization['n_constr'] = required_torque_points.shape[1]
 
         opt = evaluation.Optimize(
-            params_prediction=params_prediction,
-            params_optimization=params_optimization,
+            params_prediction=self.params_prediction,
+            params_optimization=self.params_optimization,
         )
         opt.optimize(seed=params_optimization['seed']) #0,3
         # opt.show_best_result()
         self.opt = opt
-        
+
+#%%
+params_prediction = {
+    'Ie_max': 200, # 0~800/(2**0.5)
+    'RPM_max': 14000, # 0~30000
+    'TEMP_PM': 40, # 0~200
+    'PM_material': 'NMX-34EH',
+    'Vdc': 650,
+    'Ra': 0.1,
+    'Pn': 4,
+    'device': device,
+    'include_pm_joule': False,
+    'path_param_scaling': params_data['path_data']+'\\'+params_data['scaling_parameters']+'_all.csv',
+}
+df_sp = pd.read_csv(params_prediction['path_param_scaling'])
+df_sp.index = ['mean','std']
+params_prediction['param_scaling'] = df_sp
+data_dir = Path(f"{params_data['path_data']}\\raw\\_common_setting\\b-h_PM")
+pattern = r"b-h_(.+)\.csv"
+PM_names = [re.search(pattern, p.name).group(1) for p in data_dir.glob('*.csv')]
+PM_data = {n: pd.read_csv(p) for n, p in zip(PM_names, data_dir.glob('*.csv'))}
+PM_class = {'NMX':[], 'R':[],}
+for n in PM_names:
+    if n.startswith('NMX'): PM_class['NMX'].append(n)
+    elif n.startswith('R'): PM_class['R'].append(n)
+params_prediction['PM_data'] = PM_data
+params_prediction['PM_class'] = PM_class
+
+n_var = GAN.latent_dim
+params_optimization = {
+    'model_flux': model_flux,
+    'model_ironloss': model_ironloss,
+    'GAN': GAN,
+    'n_var': n_var,
+    'xl': np.ones(n_var)*-1000,
+    'xu': np.ones(n_var)*1000,
+}
+params_optimization['pop_size'] = 20
+params_optimization['n_offsprings'] = 10
+params_optimization['n_termination'] = 10
+params_optimization['verbose'] = True
 params_optimization['seed'] = 3
-f = Optimize()
+
+f = Optimize(params_prediction=params_prediction, params_optimization=params_optimization)
 
 #%%
 f.optimize(

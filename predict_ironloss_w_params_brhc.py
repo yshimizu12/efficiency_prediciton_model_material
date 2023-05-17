@@ -38,7 +38,7 @@ params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
     # 'epochs_optuna': 20,
-    'epochs_check': 100,
+    'epochs_check': 500,
     'save_every': 10,
     'hidden_dim_init': 8,
     'num_hidden_dims': 2,
@@ -360,7 +360,8 @@ def main(modelname, typename, pathmodel=None):
     def save_model(model, num, times):
         torch.save(model, model_name(num, times))
     def save_result(result, num, times):
-        with open(str(base_dir / results_dir / name / f'result_{num}_{times}.csv'), 'w', encoding='Shift_jis') as f:
+        # with open(str(base_dir / results_dir / name / f'result_{num}_{times}.csv'), 'w', encoding='Shift_jis') as f:
+        with open(str(base_dir / results_dir / name / f'result_{times}.csv'), 'w', encoding='Shift_jis') as f:
             writer = csv.writer(f, lineterminator='\n')
             writer.writerows(result)
     def save_best_params(best_params):

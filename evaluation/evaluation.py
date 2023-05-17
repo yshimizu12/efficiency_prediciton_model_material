@@ -17,7 +17,7 @@ from pymoo.operators.sampling.lhs import LHS
 class Evaluate:
     def __init__(
         self, model_flux, model_ironloss,
-        Ie_max=134, RPM_max=20000, TEMP_PM=20, PM_material='NMX-S49CH', PM_data=None, PM_class=None,
+        Ie_max=134, RPM_max=20000, PM_data=None, PM_class=None, TEMP_PM=20, PM_material='NMX-S49CH',
         Vdc=650, Ra=0.1285, Pn=4, device='cpu', include_pm_joule=False, param_scaling=None,
         **kwargs,
         ):
@@ -34,14 +34,15 @@ class Evaluate:
         self.Pn = Pn
         self.Nmax = RPM_max
         self.N_interval = 1000 if self.Nmax >= 10000 else self.Nmax//10
-        self.TEMP_PM = TEMP_PM
         self.device = device
         # self.sp = sp
         self.param_scaling = param_scaling
         self.include_pm_joule = include_pm_joule
         self._elec_params_setting(Ie_max, Vdc)
         self._init_envs_matplotlib()
-        self.pm_material = self._init_PM_material(TEMP_PM, PM_material, PM_data, PM_class)
+        self.PM_data = PM_data
+        self.PM_class = PM_class
+        self._set_PM_material_parameter(TEMP_PM, PM_material)
 
     def evaluation(self, img, filename):
         img = np.array(img)
@@ -81,11 +82,13 @@ class Evaluate:
         )
         return params_plot, df_NT_pred_all['Tavg (Nm)'].values[0]
 
-    def _init_PM_material(self, TEMP_PM, PM_material, PM_data, PM_class):
-        pm_data_int = self._interpolate(TEMP_PM, PM_data[PM_material])
-        if PM_material in PM_class['NMX']:
+    def _set_PM_material_parameter(self, TEMP_PM, PM_material):
+        #  = self._init_PM_material(TEMP_PM, PM_material, self.PM_data, self.PM_class)
+        self.TEMP_PM = self._scaling(TEMP_PM, 'PM_TEMP')
+        pm_data_int = self._interpolate(TEMP_PM, self.PM_data[PM_material])
+        if PM_material in self.PM_class['NMX']:
             pm_data_int['PM_RESISTANCE'] = 1.44e-6
-        elif PM_material in PM_class['R']:
+        elif PM_material in self.PM_class['R']:
             pm_data_int['PM_RESISTANCE'] = 8e-7
         else:
             pm_data_int['PM_RESISTANCE'] = np.nan
@@ -100,7 +103,8 @@ class Evaluate:
             self._scaling(pm_data_int['PM_RESISTANCE'],'PM_RESISTANCE'),
         ]
         # print(pm_data_int_scaled)
-        return  torch.tensor(pm_data_int_scaled, dtype=torch.float32).to(self.device)
+        self.pm_material = torch.tensor(pm_data_int_scaled, dtype=torch.float32).to(self.device)
+        # return  torch.tensor(pm_data_int_scaled, dtype=torch.float32).to(self.device)
         # return  torch.tensor(self._interpolate(TEMP_PM, PM_data[PM_material]).values, dtype=torch.float32).to(self.device)
         # return  torch.tensor(np.array([1,0,0,0,0,0,0,0,0,0]), dtype=torch.float32).to(self.device)
     
@@ -146,6 +150,10 @@ class Evaluate:
         # parameters = np.concatenate([[id_scaled, iq_scaled], [self.TEMP_PM]])
         # print(parameters.shape)
         # print(torch.tensor(parameters, dtype=torch.float32).to(self.device).shape)
+        # print(torch.tensor(parameters, dtype=torch.float32).to(self.device), self.pm_material.repeat(dim,1))
+        # print(
+        #     encoded_img.repeat(dim,1), torch.tensor(parameters, dtype=torch.float32).to(self.device), self.pm_material.repeat(dim,1)
+        # )
         psi_d_scaled, psi_q_scaled = self.model_flux_aft_cat(
             encoded_img.repeat(dim,1), torch.tensor(parameters, dtype=torch.float32).to(self.device), self.pm_material.repeat(dim,1)
         )
