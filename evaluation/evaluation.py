@@ -359,8 +359,9 @@ class Evaluate:
             id_ = -Ia*self._sin(beta)
             iq_ = Ia*self._cos(beta)
             iron_loss = self._ironloss_calculation(id_, iq_, N, encoded_img, include_pm_joule, calc_grad)
-        except:
-            print('error')
+        except Exception as e:
+            # print(e)
+            # print(Ia)
             copper_loss, iron_loss = None, None
         return copper_loss, iron_loss
 
@@ -621,7 +622,7 @@ class Optimize:
             values = []
             for cond in self.condition_evaluation_point_best:
                 Ia, beta, N, T = cond['Ia'], cond['beta'], cond['N'], cond['T']
-                loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, include_pm_joule=self.include_pm_joule, calc_grad=False)
+                loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, include_pm_joule=self.problem.eval.include_pm_joule, calc_grad=False)
                 power = N * 2*np.pi/60 * T
                 efficiency = (power-loss[1])/(power+loss[0])*100
                 values.append(efficiency)
@@ -685,7 +686,7 @@ class Optimize:
         generated_image = self.problem.Generator(x_tensor)
         _, encoded_img = self.problem.eval._calc_encoded_img(generated_image)
         if charac=='efficiency':
-            loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, include_pm_joule=self.include_pm_joule, calc_grad=True)
+            loss = self.problem.eval._loss_calculation(Ia, beta, N, encoded_img, include_pm_joule=self.problem.eval.include_pm_joule, calc_grad=True)
             power = N * 2*np.pi/60 * T
             efficiency = (power-loss[1])/(power+loss[0])
             efficiency.backward()
@@ -746,7 +747,7 @@ class MyProblem(ElementwiseProblem):
         for evaluate_point in self.evaluate_efficiency_points:
             try:
                 Ia_point, beta_point, N_point, T_point = self.eval._search_current_condition_for_maximum_torque_control(evaluate_point[1], evaluate_point[0], encoded_img_all[0], self.eval.Iam)
-                loss = self.eval._loss_calculation(Ia_point, beta_point, evaluate_point[1], encoded_img_all[1], include_pm_joule=self.include_pm_joule)
+                loss = self.eval._loss_calculation(Ia_point, beta_point, evaluate_point[1], encoded_img_all[1], include_pm_joule=self.eval.include_pm_joule)
                 power = N_point * 2*np.pi/60 * T_point
                 efficiencies.append( -(power-loss[1])/(power+loss[0]) )
                 conditions.append([Ia_point, beta_point, N_point, T_point])
@@ -757,6 +758,7 @@ class MyProblem(ElementwiseProblem):
                 losses.append([np.nan, np.nan, np.nan])
         conditions = np.array(conditions)
         losses = np.array(losses)
+        # print(efficiencies)
         out["F"] = efficiencies
         out["G"] = [(self.required_torque_points[i][0]*1.05-charac_at_req[i,3])/self.required_torque_points[0][0] for i in range(self.num_of_req_points)]
         out["COND"] = conditions #conditions

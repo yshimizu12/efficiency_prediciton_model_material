@@ -9,6 +9,7 @@ from tqdm import tqdm
 import time
 import pickle
 import re
+import datetime
 
 import cv2
 import numpy as np
@@ -41,7 +42,7 @@ params_flux = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_flux_brhc_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\2_brhc2\\2305162137_pred_flux_brhc_swin_t_w_params\\',
     # 'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305112018_pred_flux_brhc_swin_t_w_params_torque_MSE3\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
@@ -68,7 +69,7 @@ params_ironloss = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_ironloss_brhc_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\2_brhc2\\2305162107_pred_ironloss_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -91,7 +92,9 @@ with open(f'{dir_model}params.pkl', "rb") as tf:
 params_ironloss.update(params_)
 
 params_gan = {
-    'path_generator': f'{base_dir}_GAN\\230503\\models\\2D-V-Nabla-2U\\model_25.pt',
+    'path_generator': f'{base_dir}_GAN\\230518_data_aug\\',
+    'name': '2D-V-Nabla-2U',
+    'load_from': 15,
 }
 
 params_data = {
@@ -339,22 +342,30 @@ model_ironloss.load_state_dict(torch.load(
 model_ironloss.eval()
 
 #%%
-trainer = Trainer(
+# trainer = Trainer(
+#     disc_output_size = 1,
+#     image_size = 256,
+#     use_aim=False
+# )
+model = Trainer(
+    models_dir = params_gan['path_generator'] + 'models',
+    results_dir = params_gan['path_generator'] + 'results',
+    name = params_gan['name'],
     disc_output_size = 1,
     image_size = 256,
     use_aim=False
 )
-# model.load(-1)
-trainer.init_GAN()
-GAN = trainer.GAN
-GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
+model.load(params_gan['load_from'])
+GAN = model.GAN.eval()
+# trainer.init_GAN()
+# GAN = trainer.GAN
+# GAN.load_state_dict(torch.load(params_gan['path_generator'])['GAN'])
 
 #%%
 x = np.ones(256)
-generated_image_ = GAN.G(torch.from_numpy(x.reshape(1,-1)).to(device=device,dtype=torch.float))
+x = np.random.randn(256)
+generated_image_ = GAN.G(torch.from_numpy(x.reshape(1,-1)).to(device=device,dtype=torch.float)).clamp_(0., 1.)
 generated_image_ = generated_image_.cpu().detach().numpy()[0].transpose(1,2,0)
-generated_image_[generated_image_>1.] = 1.
-generated_image_[generated_image_<0.] = 0.
 
 plt.imshow(generated_image_)
 
@@ -411,10 +422,10 @@ def reconstruct_motor_image(img_polar, n_area=300, n_out=693, n_in=250):
     return img_reconst
 
 
-# #%%
+#%%
 # params_prediction = {
 #     'Ie_max': 300, # 0~800/(2**0.5)
-#     'RPM_max': 15000, # 0~30000
+#     'RPM_max': 14000, # 0~30000
 #     # 'TEMP_PM': 40, # 0~200
 #     # 'PM_material': 'NMX-S49CH',
 #     'Vdc': 650,
@@ -550,6 +561,17 @@ def reconstruct_motor_image(img_polar, n_area=300, n_out=693, n_in=250):
 # evaln.Nmax = params['RPM_max']
 # evaln._set_PM_material_parameter(params['TEMP_PM'], params['PM_material'])
 
+# x = np.ones(256)
+# x = np.random.randn(256)
+# generated_image_ = GAN.G(torch.from_numpy(x.reshape(1,-1)).to(device=device,dtype=torch.float)).clamp_(0., 1.)
+# img = generated_image_.cpu().detach().numpy()[0].transpose(1,2,0)
+# path_img = 'D:\\program\\github\\_data_motor\\raw\\2D\\geometry\\result\\image\\000000.png'
+# img = Image.open(path_img)
+# img = np.array(img)
+
+# plt.imshow(img)
+# plt.show()
+
 # start = time.time()
 # evaln.evaluation(img, 'hoge')
 # print(time.time() - start)
@@ -612,35 +634,54 @@ class Optimize:
     def __init__(self, params_prediction, params_optimization):
         self.params_prediction = params_prediction
         self.params_optimization = params_optimization
-    def optimize(self, Ie_max, Vdc, torque1, torque2, efficiency1, efficiency2):
-        self.Ie_max = Ie_max
-        self.Vdc = Vdc
-        self.torque1 = torque1
-        self.torque2 = torque2
-        self.efficiency1 = efficiency1
-        self.efficiency2 = efficiency2
-        params_prediction['Ie_max'] = float(Ie_max)
-        params_prediction['Vdc'] = float(Vdc)
-        required_torque_points = np.array([
-            [float(x.strip()) for x in torque1.split(',')], 
-            [float(x.strip()) for x in torque2.split(',')],
-        ])
-        evaluate_efficiency_points = np.array([
-            [float(x.strip()) for x in efficiency1.split(',')], 
-            [float(x.strip()) for x in efficiency2.split(',')],
-        ])
-        params_optimization['required_torque_points'] = required_torque_points
-        params_optimization['evaluate_efficiency_points'] = evaluate_efficiency_points
-        params_optimization['n_obj'] = evaluate_efficiency_points.shape[1]
-        params_optimization['n_constr'] = required_torque_points.shape[1]
+    # def optimize(self, Ie_max, Vdc, torque1, torque2, efficiency1, efficiency2):
+    #     self.Ie_max = Ie_max
+    #     self.Vdc = Vdc
+    #     self.torque1 = torque1
+    #     self.torque2 = torque2
+    #     self.efficiency1 = efficiency1
+    #     self.efficiency2 = efficiency2
+    #     self.params_prediction['Ie_max'] = float(Ie_max)
+    #     self.params_prediction['Vdc'] = float(Vdc)
+    #     required_torque_points = np.array([
+    #         [float(x.strip()) for x in torque1.split(',')], 
+    #         [float(x.strip()) for x in torque2.split(',')],
+    #     ])
+    #     evaluate_efficiency_points = np.array([
+    #         [float(x.strip()) for x in efficiency1.split(',')], 
+    #         [float(x.strip()) for x in efficiency2.split(',')],
+    #     ])
+    #     self.params_optimization['required_torque_points'] = required_torque_points
+    #     self.params_optimization['evaluate_efficiency_points'] = evaluate_efficiency_points
+    #     self.params_optimization['n_obj'] = evaluate_efficiency_points.shape[1]
+    #     self.params_optimization['n_constr'] = required_torque_points.shape[1]
 
-        opt = evaluation.Optimize(
+    #     self.opt = evaluation.Optimize(
+    #         params_prediction=self.params_prediction,
+    #         params_optimization=self.params_optimization,
+    #     )
+    #     self.opt.optimize(seed=params_optimization['seed']) #0,3
+    #     # opt.show_best_result()
+    #     # self.opt = opt
+    def optimize(self, Ie_max, Vdc, TEMP_PM, PM_material, torques, efficiencies):
+        self.params_prediction['Ie_max'] = float(Ie_max)
+        self.params_prediction['Vdc'] = float(Vdc)
+        self.params_prediction['TEMP_PM'] = float(TEMP_PM)
+        self.params_prediction['PM_material'] = PM_material
+        required_torque_points = np.array(torques)
+        evaluate_efficiency_points = np.array(efficiencies)
+        self.params_optimization['required_torque_points'] = required_torque_points
+        self.params_optimization['evaluate_efficiency_points'] = evaluate_efficiency_points
+        self.params_optimization['n_obj'] = evaluate_efficiency_points.shape[1]
+        self.params_optimization['n_constr'] = required_torque_points.shape[1]
+
+        self.opt = evaluation.Optimize(
             params_prediction=self.params_prediction,
             params_optimization=self.params_optimization,
         )
-        opt.optimize(seed=params_optimization['seed']) #0,3
+        self.opt.optimize(seed=params_optimization['seed']) #0,3
         # opt.show_best_result()
-        self.opt = opt
+        # self.opt = opt
 
 #%%
 params_prediction = {
@@ -675,39 +716,927 @@ params_optimization = {
     'model_ironloss': model_ironloss,
     'GAN': GAN,
     'n_var': n_var,
-    'xl': np.ones(n_var)*-1000,
-    'xu': np.ones(n_var)*1000,
+    'xl': np.ones(n_var)*-10,
+    'xu': np.ones(n_var)*10,
 }
-params_optimization['pop_size'] = 20
+params_optimization['pop_size'] = 100
 params_optimization['n_offsprings'] = 10
-params_optimization['n_termination'] = 10
+params_optimization['n_termination'] = 50
 params_optimization['verbose'] = True
 params_optimization['seed'] = 3
 
 f = Optimize(params_prediction=params_prediction, params_optimization=params_optimization)
 
 #%%
+# f.optimize(
+#     Ie_max='250', Vdc='650', 
+#     torque1='280, 3000', torque2='55, 11000', 
+#     efficiency1='100, 3500', efficiency2='50, 11000'
+# )
 f.optimize(
-    Ie_max='200', Vdc='650', 
-    torque1='197, 3000', torque2='40, 11000', 
-    efficiency1='20, 3500', efficiency2='20, 11000'
+    Ie_max=250, Vdc=650, TEMP_PM=40, PM_material='NMX-34EH',
+    torques=[[280, 3000],[55, 11000]], 
+    efficiencies=[[100, 3500],[50, 11000]]
 )
 
 #%%
 
+#%%
+f_1 = f.opt.result["F"]
+x_1 = f.opt.result["X"]
+g_1 = f.opt.result["G"]
+hv_1 = f.opt.result["HV"]
+cond_1 = f.opt.result["COND"]
+loss_1 = f.opt.result["LOSS"]
+
+#%%
+save_dir = Path('optimization_results')
+dt = datetime.datetime.now().strftime('%Y%m%d%H%M%S')[2:]
+
+(save_dir / dt).mkdir(parents=True, exist_ok=True)
+np.save(f'{save_dir}\\{dt}\\{dt}_2DVnabla_fitness_2eff_coef.npy', np.array(f_1))
+np.save(f'{save_dir}\\{dt}\\{dt}_2DVnabla_xgeom_2eff_coef.npy', np.array(x_1))
+np.save(f'{save_dir}\\{dt}\\{dt}_2DVnabla_constraint_2eff_coef.npy', np.array(g_1))
+np.save(f'{save_dir}\\{dt}\\{dt}_2DVnabla_hv_2eff_coef.npy', np.array(hv_1))
+np.save(f'{save_dir}\\{dt}\\{dt}_2DVnabla_conditions_2eff_coef.npy', np.array(cond_1))
+np.save(f'{save_dir}\\{dt}\\{dt}_2DVnabla_losses_2eff_coef.npy', np.array(loss_1))
+
+params_save = params_optimization.copy()
+del_list = [
+    'model_flux', 'model_ironloss', 'GAN', 'xl', 'xu',]
+for d in del_list:
+    params_save.pop(d)
+with open(f'{save_dir}\\{dt}\\optimization_params.pkl', "wb") as tf:
+    pickle.dump(params_save,tf)
+
+#%%
+dt = '230210153538'
+
+f_1 = np.load(f'{save_dir}\\{dt}\\{dt}_2DVnabla_fitness_2eff_coef.npy')
+x_1 = np.load(f'{save_dir}\\{dt}\\{dt}_2DVnabla_xgeom_2eff_coef.npy')
+g_1 = np.load(f'{save_dir}\\{dt}\\{dt}_2DVnabla_constraint_2eff_coef.npy')
+hv_1 = np.load(f'{save_dir}\\{dt}\\{dt}_2DVnabla_hv_2eff_coef.npy')
+cond_1 = np.load(f'{save_dir}\\{dt}\\{dt}_2DVnabla_conditions_2eff_coef.npy')
+loss_1 = np.load(f'{save_dir}\\{dt}\\{dt}_2DVnabla_losses_2eff_coef.npy')
+
+#%%
+
+# fig, ax = plt.subplots(figsize=(8/2.54,5/2.54))
+fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+
+s = np.array(f_1).shape
+pf_tmp = calc_pareto_front(np.array(f_1[-1]).reshape(s[1], s[2]))
+# ax.plot(pf_tmp[:,0]*14.63, pf_tmp[:,1]*-197, c='c', linewidth=1)
+# ax.plot([5,17],[197*1.03,197*1.03],'b--', linewidth=1)
+ax.plot(np.array(f_1).reshape(s[0]*s[1], s[2])[:,0]*-100,
+         np.array(f_1).reshape(s[0]*s[1], s[2])[:,1]*-100,
+         'o', c='k', ms=0.3, label='All population')
+ax.plot(np.array(f_1[-1]).reshape(s[1], s[2])[:,0]*-100,
+         np.array(f_1[-1]).reshape(s[1], s[2])[:,1]*-100,
+         's', c='r', ms=2, label='Last population')
+# for i in [0,round(len(pf_tmp)/2),-1]:
+#     ax.plot(pf_tmp[i][0]*14.63, pf_tmp[i][1]*-197, 'o', c='g', ms=2)
+
+# pf_tmp = calc_pareto_front(np.array(f_1[-1]).reshape(s[1], s[2]))
+
+
+# ax.set_yticks(np.arange(120,240+1,40))
+# ax.set_yticklabels(np.arange(120,240+1,40))
+# ax.set_ylim([120,240])
+# ax.set_xlabel('Efficiency at $\itP$$_1$ (%)')
+# ax.set_ylabel('Efficiency at $\itP$$_2$ (%)')
+ax.set_xlabel('Efficiency at P_1 (%)')
+ax.set_ylabel('Efficiency at P_2 (%)')
+
+# ax.text(5,197*1.05,'Constraint',color='b')
+# ax.text(10,205,'A',color='g')
+# ax.text(13,222,'B',color='g')
+# ax.text(16.5,227,'C',color='g')
+
+ax.legend(loc='best',fontsize=13)
+
+fig.tight_layout()
+# plt.savefig(f'{dt}_all_population.png', dpi=300, format='png')
+
+#%%
+
+s = np.array(loss_1).shape
+names = ['copper loss', 'iron loss', 'power']
+
+for i in range(3):
+    fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+    ax.plot(np.array(loss_1)[:,:,:,i].reshape(s[0]*s[1], s[2])[:,0],
+            np.array(loss_1)[:,:,:,i].reshape(s[0]*s[1], s[2])[:,1],
+            'o', c='k', ms=0.3, label='All population')
+    ax.plot(np.array(loss_1[-1])[:,:,i].reshape(s[1], s[2])[:,0],
+            np.array(loss_1[-1])[:,:,i].reshape(s[1], s[2])[:,1],
+            's', c='r', ms=2, label='Last population')
+
+    ax.set_xlabel(f'{names[i]} at P_1 (W)')
+    ax.set_ylabel(f'{names[i]} at P_2 (W)')
+
+    ax.legend(loc='best',fontsize=13)
+
+    fig.tight_layout()
+
+fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+ax.plot(np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,0],
+        np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,1],
+        'o', c='k', ms=0.3, label='All population')
+ax.plot(np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,0],
+        np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,1],
+        's', c='r', ms=2, label='Last population')
+
+ax.set_xlabel(f'loss at P_1 (W)')
+ax.set_ylabel(f'loss at P_2 (W)')
+
+ax.legend(loc='best',fontsize=13)
+
+fig.tight_layout()
+# plt.savefig(f'{dt}_all_population.png', dpi=300, format='png')
+
+#%%
+
+PA = f.params_optimization['required_torque_points'][0]
+PB = f.params_optimization['required_torque_points'][1]
+# fig, ax = plt.subplots(figsize=(8/2.54,5/2.54))
+fig, ax = plt.subplots(figsize=(13/2.54,8/2.54))
+
+alpha = 1.05
+s = np.array(f_1).shape
+pf_tmp = calc_pareto_front(np.array(f_1[-1]).reshape(s[1], s[2]))
+# ax.plot(pf_tmp[:,0]*14.63, pf_tmp[:,1]*-197, c='c', linewidth=1)
+ax.plot([140,330],[PB[0]*alpha,PB[0]*alpha],'b--', linewidth=1)
+ax.plot([PA[0]*alpha,PA[0]*alpha],[25,70],'b--', linewidth=1)
+# ax.plot([140,330],[PB[0],PB[0]],'b--', linewidth=1)
+# ax.plot([PA[0],PA[0]],[25,70],'b--', linewidth=1)
+ax.plot((-np.array(g_1)[:,:,0]*PA[0]+PA[0]*alpha).flatten(),
+         (-np.array(g_1)[:,:,1]*PA[0]+PB[0]*alpha).flatten(),
+         'o', c='k', ms=1, label='All pop.')
+ax.plot(-np.array(g_1)[-1,:,0]*PA[0]+PA[0]*alpha,
+         -np.array(g_1)[-1,:,1]*PA[0]+PB[0]*alpha,
+         '^', c='r', ms=2, label='Last pop.')
+# ax.plot(-np.array(g_1)[-1,15,0]*PA[0]+PA[0]*alpha,
+#          -np.array(g_1)[-1,15,1]*PA[0]+PB[0]*alpha,
+#          's', c='g', ms=5)
+
+# pf_tmp = calc_pareto_front(np.array(f_1[-1]).reshape(s[1], s[2]))
+
+
+# ax.set_yticks(np.arange(120,240+1,40))
+# ax.set_yticklabels(np.arange(120,240+1,40))
+# ax.set_ylim([120,240])
+# ax.set_xlabel('Torque at $\itP$$_A$ (Nm)')
+# ax.set_ylabel('Torque at $\itP$$_B$ (Nm)')
+ax.set_xlabel('Torque at P_A (Nm)')
+ax.set_ylabel('Torque at P_B (Nm)')
+
+ax.text(140,40*1.07 ,'Constraint P_B',color='b', fontsize=7)
+ax.text(197*1.05,26 ,'Constraint P_A',color='b', rotation=-90, fontsize=7)
+# ax.text(10,205,'A',color='g')
+# ax.text(13,222,'B',color='g')
+# ax.text(16.5,227,'C',color='g')
+
+ax.legend(loc='upper left',fontsize=7)
+
+fig.tight_layout()
+# plt.savefig(f'{date}_optimization_result_constraints_NSGA2_2eff1rip_seed2.png', dpi=300, format='png')
+
+#%%
+for x in x_1[-1][::10]:
+    im = GAN.G(torch.from_numpy(x.reshape(1,-1)).to(device=device, dtype=torch.float) )
+    im_np = im.to('cpu').detach().numpy()[0].transpose(1,2,0)
+    im_np[im_np>1.]=1.
+    im_np[im_np<0.]=0.
+    plt.imshow( im_np )
+    plt.show()
+
+
+#%%
+# pf_tmp = calc_pareto_front(np.array(f_1[-1]))
+s = np.array(f_1).shape
+gen = np.array([50])-1 
+# modelname = params['modelname']
+
+for n in gen:
+    print(n+1)
+    pf_tmp = calc_pareto_front(np.array(f_1[n]).reshape(s[1],s[2]))
+    pf_tmp_images = []
+    pf_tmp_conditions = []
+    for i in range(pf_tmp.shape[0]):
+        latent_variable = x_1[n][
+            np.where(
+                np.array(f_1[n])==pf_tmp[pf_tmp[:,1]<-0.5][i][0]
+            )[0][0]]
+        pf_tmp_conditions.append(cond_1[n][
+            np.where(
+                np.array(f_1[n])==pf_tmp[pf_tmp[:,1]<-0.5][i][0]
+            )[0][0]]
+        )
+    #     im = generate_truncated(GAN.G, torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+        im = GAN.G(torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+        im_np = im.to('cpu').detach().numpy()[0].transpose(1,2,0)
+        im_np[im_np>1.]=1.
+        im_np[im_np<0.]=0.
+        pf_tmp_images.append(im_np)
+        # plt.imshow( im_np )
+        # plt.show()
+
+        img_recon = clear_blurred_image(im_np)
+        img_recon = reconstruct_motor_image(img_recon)
+        plt.imshow(img_recon)
+        plt.axis('off')
+        plt.show()
+
+#     np.save(f'{save_dir}\\{dt}\\{dt}_images_pf_2eff_{modelname}_gen{n}.npy', np.array(pf_tmp_images))
+#     np.save(f'{save_dir}\\{dt}\\{dt}_conditions_pf_2eff_{modelname}_gen{n}.npy', np.array(pf_tmp_conditions).transpose(0,2,1))
+
+#%%
+
+#%%
+def find_min_m(n):
+    m = math.ceil(math.sqrt(n))
+    while m**2 < n: m += 1
+    return m
+
+#%%
+Ie_list = [210, 215, 220, 225, 230, 235]
+# Ie_list = [210, 230, 250, 270, 290]
+
+save_dir = Path('optimization_results') / 'change_Ie'
+dt = datetime.datetime.now().strftime('%Y%m%d%H%M%S')[2:]
+
+params_optimization['pop_size'] = 100
+params_optimization['n_offsprings'] = 10
+params_optimization['n_termination'] = 50
+
+for Ie in Ie_list:
+    f = Optimize(params_prediction=params_prediction, params_optimization=params_optimization)
+
+    f.optimize(
+        Ie_max=Ie, Vdc=650, TEMP_PM=40, PM_material='NMX-34EH',
+        torques=[[280, 3000],[55, 11000]], 
+        efficiencies=[[100, 3500],[50, 11000]]
+    )
+
+    f_1 = f.opt.result["F"]
+    x_1 = f.opt.result["X"]
+    g_1 = f.opt.result["G"]
+    hv_1 = f.opt.result["HV"]
+    cond_1 = f.opt.result["COND"]
+    loss_1 = f.opt.result["LOSS"]
+
+
+    (save_dir / f'{dt}\\Ie_{Ie}').mkdir(parents=True, exist_ok=True)
+    np.save(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_fitness_2eff_coef.npy', np.array(f_1))
+    np.save(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_xgeom_2eff_coef.npy', np.array(x_1))
+    np.save(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_constraint_2eff_coef.npy', np.array(g_1))
+    np.save(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_hv_2eff_coef.npy', np.array(hv_1))
+    np.save(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_conditions_2eff_coef.npy', np.array(cond_1))
+    np.save(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_losses_2eff_coef.npy', np.array(loss_1))
+
+    params_save = params_optimization.copy()
+    del_list = [
+        'model_flux', 'model_ironloss', 'GAN', 'xl', 'xu',]
+    for d in del_list:
+        params_save.pop(d)
+    with open(f'{save_dir}\\{dt}\\Ie_{Ie}\\optimization_params.pkl', "wb") as tf:
+        pickle.dump(params_save,tf)
+
+#%%
+Ie_list = [210, 215, 220, 225, 230, 235]
+# Ie_list = [210, 230, 250, 270, 290]
+# Ie_list = [210]
+
+dt = '230524200835'
+save_dir = Path('optimization_results') / 'change_Ie'
+# x_1_all = []
+pf_tmp_all = {}
+
+for Ie in Ie_list:
+    f_1 = np.load(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_fitness_2eff_coef.npy')
+    x_1 = np.load(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_xgeom_2eff_coef.npy')
+    g_1 = np.load(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_constraint_2eff_coef.npy')
+    hv_1 = np.load(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_hv_2eff_coef.npy')
+    cond_1 = np.load(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_conditions_2eff_coef.npy')
+    loss_1 = np.load(f'{save_dir}\\{dt}\\Ie_{Ie}\\{dt}_2DVnabla_losses_2eff_coef.npy')
+
+    check_constraint_last = ~(g_1[-1]>0).sum(axis=1).astype(bool)
+    # x_1_all.append(x_1[-1][check_constraint_last])
+
+    PA = f.params_optimization['required_torque_points'][0]
+    PB = f.params_optimization['required_torque_points'][1]
+    # fig, ax = plt.subplots(figsize=(8/2.54,5/2.54))
+    fig, ax = plt.subplots(figsize=(13/2.54,8/2.54))
+
+    g_1_ = g_1[-1][check_constraint_last]
+    alpha = 1.05
+    # ax.plot(pf_tmp[:,0]*14.63, pf_tmp[:,1]*-197, c='c', linewidth=1)
+    ax.plot([140,330],[PB[0]*alpha,PB[0]*alpha],'b--', linewidth=1)
+    ax.plot([PA[0]*alpha,PA[0]*alpha],[25,70],'b--', linewidth=1)
+    # ax.plot([140,330],[PB[0],PB[0]],'b--', linewidth=1)
+    # ax.plot([PA[0],PA[0]],[25,70],'b--', linewidth=1)
+    ax.plot((-np.array(g_1)[:,:,0]*PA[0]+PA[0]*alpha).flatten(),
+            (-np.array(g_1)[:,:,1]*PA[0]+PB[0]*alpha).flatten(),
+            'o', c='k', ms=1, label='All pop.')
+    ax.plot(-np.array(g_1)[-1,:,0]*PA[0]+PA[0]*alpha,
+            -np.array(g_1)[-1,:,1]*PA[0]+PB[0]*alpha,
+            's', c='g', ms=2, label='Last pop.')
+    ax.plot(-np.array(g_1_)[:,0]*PA[0]+PA[0]*alpha,
+            -np.array(g_1_)[:,1]*PA[0]+PB[0]*alpha,
+            '^', c='r', ms=2, label='Last pop.')
+
+    ax.set_xlabel('Torque at P_A (Nm)')
+    ax.set_ylabel('Torque at P_B (Nm)')
+
+    ax.text(140,40*1.07 ,'Constraint P_B',color='b', fontsize=7)
+    ax.text(197*1.05,26 ,'Constraint P_A',color='b', rotation=-90, fontsize=7)
+    ax.legend(loc='upper left',fontsize=7)
+
+    fig.tight_layout()
+
+# for Ie in Ie_list:
+    # g_1 = np.load(f'{save_dir}\\Ie_{Ie}\\{dt}_2DVnabla_constraint_2eff_coef.npy')
+    # check_constraint_last = ~(g_1[-1]>0).sum(axis=1).astype(bool)
+    # loss_1 = np.load(f'{save_dir}\\Ie_{Ie}\\{dt}_2DVnabla_losses_2eff_coef.npy')
+    s = np.array(loss_1).shape
+
+    fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+    ax.plot(np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,0],
+            np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,1],
+            'o', c='k', ms=1, label='All population')
+    ax.plot(np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,0],
+            np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,1],
+            's', c='g', ms=3, label='Last population')
+    loss_1_ = loss_1[-1][:,:,:2].sum(axis=2)
+    loss_1_ok = loss_1_[check_constraint_last]
+    err = False
+    try:
+        if check_constraint_last.sum()>4:
+            pf_tmp = np.array(calc_pareto_front(loss_1_ok))
+        else:
+            pf_tmp = loss_1_ok
+        pf_tmp_all[Ie] = pf_tmp
+        ax.plot(pf_tmp[:,0], pf_tmp[:,1], c='b', linewidth=1)
+    except:
+        err = True
+    ax.plot(np.array(loss_1_ok)[:,0],
+            np.array(loss_1_ok)[:,1],
+            '^', c='r', ms=3, label='Last population')
+    ax.set_xlabel(f'loss at P_1 (W)')
+    ax.set_ylabel(f'loss at P_2 (W)')
+
+    ax.legend(loc='best',fontsize=13)
+    # fig.tight_layout()
+    plt.show()
+
+    if err:
+        print('no effective solution\n\n')
+    else:
+        pf_tmp_images = []
+        pf_tmp_conditions = []
+        n = -1
+        res = find_min_m(pf_tmp.shape[0])
+        fig, axes = plt.subplots(res, res, figsize=(10, 10))
+        for i in range(pf_tmp.shape[0]):
+            latent_variable = x_1[n][
+                np.where(
+                    # np.array(loss_1_)==pf_tmp[pf_tmp[:,1]<-0.5][i][0]
+                    np.array(loss_1_)==pf_tmp[i][0]
+                )[0][0]]
+            pf_tmp_conditions.append(cond_1[n][
+                np.where(
+                    np.array(loss_1_)==pf_tmp[i][0]
+                )[0][0]]
+            )
+        #     im = generate_truncated(GAN.G, torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+            im = GAN.G(torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+            im_np = im.to('cpu').detach().numpy()[0].transpose(1,2,0)
+            im_np[im_np>1.]=1.
+            im_np[im_np<0.]=0.
+            pf_tmp_images.append(im_np)
+            # plt.imshow( im_np )
+            # plt.show()
+
+            img_recon = clear_blurred_image(im_np)
+            img_recon = reconstruct_motor_image(img_recon)
+            if pf_tmp.shape[0]==1:
+                axes.imshow(img_recon)
+                axes.axis('off')
+            else:
+                axes.flatten()[i].imshow(img_recon)
+        if pf_tmp.shape[0]!=1:
+            for i in range(res**2):
+                axes.flatten()[i].axis('off')
+                # plt.imshow(img_recon)
+                # plt.axis('off')
+                # plt.show()
+        plt.show()
+
+for key in pf_tmp_all.keys():
+    if pf_tmp.shape[0]==1:
+        plt.plot(pf_tmp_all[key][:,0], pf_tmp_all[key][:,1], 'o', label=key)
+    else:
+        plt.plot(pf_tmp_all[key][:,0], pf_tmp_all[key][:,1], linewidth=1, label=key)
+plt.legend(loc='best')
+plt.show()
+
+#%%
+#%%
+Vdc_list = [650, 625, 600, 575, 550]
+
+save_dir = Path('optimization_results') / 'change_Vdc'
+dt = datetime.datetime.now().strftime('%Y%m%d%H%M%S')[2:]
+
+params_optimization['pop_size'] = 100
+params_optimization['n_offsprings'] = 10
+params_optimization['n_termination'] = 50
+
+for Vdc in Vdc_list:
+    f = Optimize(params_prediction=params_prediction, params_optimization=params_optimization)
+
+    f.optimize(
+        Ie_max=230, Vdc=Vdc, TEMP_PM=40, PM_material='NMX-34EH',
+        torques=[[280, 3000],[55, 11000]], 
+        efficiencies=[[100, 3500],[50, 11000]],
+    )
+
+    f_1 = f.opt.result["F"]
+    x_1 = f.opt.result["X"]
+    g_1 = f.opt.result["G"]
+    hv_1 = f.opt.result["HV"]
+    cond_1 = f.opt.result["COND"]
+    loss_1 = f.opt.result["LOSS"]
+
+
+    (save_dir / f'{dt}\\Vdc_{Vdc}').mkdir(parents=True, exist_ok=True)
+    np.save(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_fitness_2eff_coef.npy', np.array(f_1))
+    np.save(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_xgeom_2eff_coef.npy', np.array(x_1))
+    np.save(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_constraint_2eff_coef.npy', np.array(g_1))
+    np.save(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_hv_2eff_coef.npy', np.array(hv_1))
+    np.save(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_conditions_2eff_coef.npy', np.array(cond_1))
+    np.save(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_losses_2eff_coef.npy', np.array(loss_1))
+
+    params_save = params_optimization.copy()
+    del_list = [
+        'model_flux', 'model_ironloss', 'GAN', 'xl', 'xu',]
+    for d in del_list:
+        params_save.pop(d)
+    with open(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\optimization_params.pkl', "wb") as tf:
+        pickle.dump(params_save,tf)
+
+#%%
+
+Vdc_list = [650, 625, 600, 575, 550]
+# Ie_list = [210]
+save_dir = Path('optimization_results') / 'change_Vdc'
+dt = '230524193149'
+# x_1_all = []
+pf_tmp_all = {}
+
+for Vdc in Vdc_list:
+    f_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_fitness_2eff_coef.npy')
+    x_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_xgeom_2eff_coef.npy')
+    g_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_constraint_2eff_coef.npy')
+    hv_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_hv_2eff_coef.npy')
+    cond_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_conditions_2eff_coef.npy')
+    loss_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_losses_2eff_coef.npy')
+
+    check_constraint_last = ~(g_1[-1]>0).sum(axis=1).astype(bool)
+    # x_1_all.append(x_1[-1][check_constraint_last])
+
+    PA = f.params_optimization['required_torque_points'][0]
+    PB = f.params_optimization['required_torque_points'][1]
+    # fig, ax = plt.subplots(figsize=(8/2.54,5/2.54))
+    fig, ax = plt.subplots(figsize=(13/2.54,8/2.54))
+
+    g_1_ = g_1[-1][check_constraint_last]
+    alpha = 1.05
+    # ax.plot(pf_tmp[:,0]*14.63, pf_tmp[:,1]*-197, c='c', linewidth=1)
+    ax.plot([140,330],[PB[0]*alpha,PB[0]*alpha],'b--', linewidth=1)
+    ax.plot([PA[0]*alpha,PA[0]*alpha],[25,70],'b--', linewidth=1)
+    # ax.plot([140,330],[PB[0],PB[0]],'b--', linewidth=1)
+    # ax.plot([PA[0],PA[0]],[25,70],'b--', linewidth=1)
+    ax.plot((-np.array(g_1)[:,:,0]*PA[0]+PA[0]*alpha).flatten(),
+            (-np.array(g_1)[:,:,1]*PA[0]+PB[0]*alpha).flatten(),
+            'o', c='k', ms=1, label='All pop.')
+    ax.plot(-np.array(g_1)[-1,:,0]*PA[0]+PA[0]*alpha,
+            -np.array(g_1)[-1,:,1]*PA[0]+PB[0]*alpha,
+            's', c='g', ms=2, label='Last pop.')
+    ax.plot(-np.array(g_1_)[:,0]*PA[0]+PA[0]*alpha,
+            -np.array(g_1_)[:,1]*PA[0]+PB[0]*alpha,
+            '^', c='r', ms=2, label='Last pop.')
+
+    ax.set_xlabel('Torque at P_A (Nm)')
+    ax.set_ylabel('Torque at P_B (Nm)')
+
+    ax.text(140,40*1.07 ,'Constraint P_B',color='b', fontsize=7)
+    ax.text(197*1.05,26 ,'Constraint P_A',color='b', rotation=-90, fontsize=7)
+    ax.legend(loc='upper left',fontsize=7)
+
+    fig.tight_layout()
+
+# for Ie in Ie_list:
+    # g_1 = np.load(f'{save_dir}\\Ie_{Ie}\\{dt}_2DVnabla_constraint_2eff_coef.npy')
+    # check_constraint_last = ~(g_1[-1]>0).sum(axis=1).astype(bool)
+    # loss_1 = np.load(f'{save_dir}\\Ie_{Ie}\\{dt}_2DVnabla_losses_2eff_coef.npy')
+    s = np.array(loss_1).shape
+
+    fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+    ax.plot(np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,0],
+            np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,1],
+            'o', c='k', ms=1, label='All population')
+    ax.plot(np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,0],
+            np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,1],
+            's', c='g', ms=3, label='Last population')
+    loss_1_ = loss_1[-1][:,:,:2].sum(axis=2)
+    loss_1_ok = loss_1_[check_constraint_last]
+    err = False
+    try:
+        if check_constraint_last.sum()>4:
+            pf_tmp = np.array(calc_pareto_front(loss_1_ok))
+        else:
+            pf_tmp = loss_1_ok
+        pf_tmp_all[Vdc] = pf_tmp
+        ax.plot(pf_tmp[:,0], pf_tmp[:,1], c='b', linewidth=1)
+    except:
+        err = True
+    if pf_tmp.shape[0]==0: err = True
+    ax.plot(np.array(loss_1_ok)[:,0],
+            np.array(loss_1_ok)[:,1],
+            '^', c='r', ms=3, label='Last population')
+    ax.set_xlabel(f'loss at P_1 (W)')
+    ax.set_ylabel(f'loss at P_2 (W)')
+
+    ax.legend(loc='best',fontsize=13)
+    # fig.tight_layout()
+    plt.show()
+
+    if err:
+        print('no effective solution\n\n')
+    else:
+        pf_tmp_images = []
+        pf_tmp_conditions = []
+        n = -1
+        res = find_min_m(pf_tmp.shape[0])
+        fig, axes = plt.subplots(res, res, figsize=(10, 10))
+        for i in range(pf_tmp.shape[0]):
+            latent_variable = x_1[n][
+                np.where(
+                    # np.array(loss_1_)==pf_tmp[pf_tmp[:,1]<-0.5][i][0]
+                    np.array(loss_1_)==pf_tmp[i][0]
+                )[0][0]]
+            pf_tmp_conditions.append(cond_1[n][
+                np.where(
+                    np.array(loss_1_)==pf_tmp[i][0]
+                )[0][0]]
+            )
+        #     im = generate_truncated(GAN.G, torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+            im = GAN.G(torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+            im_np = im.to('cpu').detach().numpy()[0].transpose(1,2,0)
+            im_np[im_np>1.]=1.
+            im_np[im_np<0.]=0.
+            pf_tmp_images.append(im_np)
+            # plt.imshow( im_np )
+            # plt.show()
+
+            img_recon = clear_blurred_image(im_np)
+            img_recon = reconstruct_motor_image(img_recon)
+            if pf_tmp.shape[0]==1:
+                axes.imshow(img_recon)
+                axes.axis('off')
+            else:
+                axes.flatten()[i].imshow(img_recon)
+        if pf_tmp.shape[0]!=1:
+            for i in range(res**2):
+                axes.flatten()[i].axis('off')
+                # plt.imshow(img_recon)
+                # plt.axis('off')
+                # plt.show()
+        plt.show()
+
+for key in pf_tmp_all.keys():
+    if pf_tmp.shape[0]==1:
+        plt.plot(pf_tmp_all[key][:,0], pf_tmp_all[key][:,1], 'o', label=key)
+    else:
+        plt.plot(pf_tmp_all[key][:,0], pf_tmp_all[key][:,1], linewidth=1, label=key)
+plt.legend(loc='best')
+plt.show()
+
+#%%
+
+
+#%%
+PM_material_list = [
+    'NMX-K30ER',
+    'NMX-34EH',
+    'NMX-39EH',
+    'NMX-43SH',
+    'NMX-S49CH',
+    'NMX-S52',
+    'R26HE',
+    'R30',
+    'R32HS',
+    'R33H',
+]
+# PM_TEMP_list = [20,40,60,80,100,120,140,160,180]
+PM_TEMP_list = [20,180,]
+
+save_dir = Path('optimization_results') / 'change_PM'
+dt = datetime.datetime.now().strftime('%Y%m%d%H%M%S')[2:]
+
+params_optimization['pop_size'] = 100
+params_optimization['n_offsprings'] = 10
+params_optimization['n_termination'] = 50
+
+for PM_mat in PM_material_list:
+    for PM_temp in PM_TEMP_list:
+        f = Optimize(params_prediction=params_prediction, params_optimization=params_optimization)
+
+        f.optimize(
+            Ie_max=300, Vdc=650, TEMP_PM=PM_temp, PM_material=PM_mat,
+            torques=[[280, 3000],[55, 11000]], 
+            efficiencies=[[50, 3500],[50, 11000]],
+        )
+
+        f_1 = f.opt.result["F"]
+        x_1 = f.opt.result["X"]
+        g_1 = f.opt.result["G"]
+        hv_1 = f.opt.result["HV"]
+        cond_1 = f.opt.result["COND"]
+        loss_1 = f.opt.result["LOSS"]
+
+
+        (save_dir / f'{dt}\\mat_{PM_mat}_temp_{PM_temp}').mkdir(parents=True, exist_ok=True)
+        np.save(f'{save_dir}\\{dt}\\mat_{PM_mat}_temp_{PM_temp}\\{dt}_2DVnabla_fitness_2eff_coef.npy', np.array(f_1))
+        np.save(f'{save_dir}\\{dt}\\mat_{PM_mat}_temp_{PM_temp}\\{dt}_2DVnabla_xgeom_2eff_coef.npy', np.array(x_1))
+        np.save(f'{save_dir}\\{dt}\\mat_{PM_mat}_temp_{PM_temp}\\{dt}_2DVnabla_constraint_2eff_coef.npy', np.array(g_1))
+        np.save(f'{save_dir}\\{dt}\\mat_{PM_mat}_temp_{PM_temp}\\{dt}_2DVnabla_hv_2eff_coef.npy', np.array(hv_1))
+        np.save(f'{save_dir}\\{dt}\\mat_{PM_mat}_temp_{PM_temp}\\{dt}_2DVnabla_conditions_2eff_coef.npy', np.array(cond_1))
+        np.save(f'{save_dir}\\{dt}\\mat_{PM_mat}_temp_{PM_temp}\\{dt}_2DVnabla_losses_2eff_coef.npy', np.array(loss_1))
+
+        params_save = params_optimization.copy()
+        del_list = [
+            'model_flux', 'model_ironloss', 'GAN', 'xl', 'xu',]
+        for d in del_list:
+            params_save.pop(d)
+        with open(f'{save_dir}\\{dt}\\mat_{PM_mat}_temp_{PM_temp}\\optimization_params.pkl', "wb") as tf:
+            pickle.dump(params_save,tf)
+
+#%%
+
+Vdc_list = [650, 625, 600, 575, 550]
+# Ie_list = [210]
+save_dir = Path('optimization_results') / 'change_Vdc'
+dt = '230524193149'
+# x_1_all = []
+pf_tmp_all = {}
+
+for Vdc in Vdc_list:
+    f_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_fitness_2eff_coef.npy')
+    x_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_xgeom_2eff_coef.npy')
+    g_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_constraint_2eff_coef.npy')
+    hv_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_hv_2eff_coef.npy')
+    cond_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_conditions_2eff_coef.npy')
+    loss_1 = np.load(f'{save_dir}\\{dt}\\Vdc_{Vdc}\\{dt}_2DVnabla_losses_2eff_coef.npy')
+
+    check_constraint_last = ~(g_1[-1]>0).sum(axis=1).astype(bool)
+    # x_1_all.append(x_1[-1][check_constraint_last])
+
+    PA = f.params_optimization['required_torque_points'][0]
+    PB = f.params_optimization['required_torque_points'][1]
+    # fig, ax = plt.subplots(figsize=(8/2.54,5/2.54))
+    fig, ax = plt.subplots(figsize=(13/2.54,8/2.54))
+
+    g_1_ = g_1[-1][check_constraint_last]
+    alpha = 1.05
+    # ax.plot(pf_tmp[:,0]*14.63, pf_tmp[:,1]*-197, c='c', linewidth=1)
+    ax.plot([140,330],[PB[0]*alpha,PB[0]*alpha],'b--', linewidth=1)
+    ax.plot([PA[0]*alpha,PA[0]*alpha],[25,70],'b--', linewidth=1)
+    # ax.plot([140,330],[PB[0],PB[0]],'b--', linewidth=1)
+    # ax.plot([PA[0],PA[0]],[25,70],'b--', linewidth=1)
+    ax.plot((-np.array(g_1)[:,:,0]*PA[0]+PA[0]*alpha).flatten(),
+            (-np.array(g_1)[:,:,1]*PA[0]+PB[0]*alpha).flatten(),
+            'o', c='k', ms=1, label='All pop.')
+    ax.plot(-np.array(g_1)[-1,:,0]*PA[0]+PA[0]*alpha,
+            -np.array(g_1)[-1,:,1]*PA[0]+PB[0]*alpha,
+            's', c='g', ms=2, label='Last pop.')
+    ax.plot(-np.array(g_1_)[:,0]*PA[0]+PA[0]*alpha,
+            -np.array(g_1_)[:,1]*PA[0]+PB[0]*alpha,
+            '^', c='r', ms=2, label='Last pop.')
+
+    ax.set_xlabel('Torque at P_A (Nm)')
+    ax.set_ylabel('Torque at P_B (Nm)')
+
+    ax.text(140,40*1.07 ,'Constraint P_B',color='b', fontsize=7)
+    ax.text(197*1.05,26 ,'Constraint P_A',color='b', rotation=-90, fontsize=7)
+    ax.legend(loc='upper left',fontsize=7)
+
+    fig.tight_layout()
+
+# for Ie in Ie_list:
+    # g_1 = np.load(f'{save_dir}\\Ie_{Ie}\\{dt}_2DVnabla_constraint_2eff_coef.npy')
+    # check_constraint_last = ~(g_1[-1]>0).sum(axis=1).astype(bool)
+    # loss_1 = np.load(f'{save_dir}\\Ie_{Ie}\\{dt}_2DVnabla_losses_2eff_coef.npy')
+    s = np.array(loss_1).shape
+
+    fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+    ax.plot(np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,0],
+            np.array(loss_1)[:,:,:,:2].sum(axis=3).reshape(s[0]*s[1], s[2])[:,1],
+            'o', c='k', ms=1, label='All population')
+    ax.plot(np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,0],
+            np.array(loss_1[-1])[:,:,:2].sum(axis=2).reshape(s[1], s[2])[:,1],
+            's', c='g', ms=3, label='Last population')
+    loss_1_ = loss_1[-1][:,:,:2].sum(axis=2)
+    loss_1_ok = loss_1_[check_constraint_last]
+    err = False
+    try:
+        if check_constraint_last.sum()>4:
+            pf_tmp = np.array(calc_pareto_front(loss_1_ok))
+        else:
+            pf_tmp = loss_1_ok
+        pf_tmp_all[Vdc] = pf_tmp
+        ax.plot(pf_tmp[:,0], pf_tmp[:,1], c='b', linewidth=1)
+    except:
+        err = True
+    if pf_tmp.shape[0]==0: err = True
+    ax.plot(np.array(loss_1_ok)[:,0],
+            np.array(loss_1_ok)[:,1],
+            '^', c='r', ms=3, label='Last population')
+    ax.set_xlabel(f'loss at P_1 (W)')
+    ax.set_ylabel(f'loss at P_2 (W)')
+
+    ax.legend(loc='best',fontsize=13)
+    # fig.tight_layout()
+    plt.show()
+
+    if err:
+        print('no effective solution\n\n')
+    else:
+        pf_tmp_images = []
+        pf_tmp_conditions = []
+        n = -1
+        res = find_min_m(pf_tmp.shape[0])
+        fig, axes = plt.subplots(res, res, figsize=(10, 10))
+        for i in range(pf_tmp.shape[0]):
+            latent_variable = x_1[n][
+                np.where(
+                    # np.array(loss_1_)==pf_tmp[pf_tmp[:,1]<-0.5][i][0]
+                    np.array(loss_1_)==pf_tmp[i][0]
+                )[0][0]]
+            pf_tmp_conditions.append(cond_1[n][
+                np.where(
+                    np.array(loss_1_)==pf_tmp[i][0]
+                )[0][0]]
+            )
+        #     im = generate_truncated(GAN.G, torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+            im = GAN.G(torch.from_numpy(latent_variable.reshape(1,-1)).to(device=device, dtype=torch.float) )
+            im_np = im.to('cpu').detach().numpy()[0].transpose(1,2,0)
+            im_np[im_np>1.]=1.
+            im_np[im_np<0.]=0.
+            pf_tmp_images.append(im_np)
+            # plt.imshow( im_np )
+            # plt.show()
+
+            img_recon = clear_blurred_image(im_np)
+            img_recon = reconstruct_motor_image(img_recon)
+            if pf_tmp.shape[0]==1:
+                axes.imshow(img_recon)
+                axes.axis('off')
+            else:
+                axes.flatten()[i].imshow(img_recon)
+        if pf_tmp.shape[0]!=1:
+            for i in range(res**2):
+                axes.flatten()[i].axis('off')
+                # plt.imshow(img_recon)
+                # plt.axis('off')
+                # plt.show()
+        plt.show()
+
+for key in pf_tmp_all.keys():
+    if pf_tmp.shape[0]==1:
+        plt.plot(pf_tmp_all[key][:,0], pf_tmp_all[key][:,1], 'o', label=key)
+    else:
+        plt.plot(pf_tmp_all[key][:,0], pf_tmp_all[key][:,1], linewidth=1, label=key)
+plt.legend(loc='best')
+plt.show()
 
 
 #%%
 
 
+#%%
+val_x = np.array(x_1)
+shape = val_x.shape
+res_topology = np.zeros(shape[:2])
+for i in tqdm(range(shape[0])):
+    for j in range(shape[1]):
+#         latent_variable = calculate_latent_variable(val_x[i,j])
+        generated_image = GAN.G(torch.from_numpy(val_x[i,j].reshape(1,-1)).to(device=device, dtype=torch.float) )
+        image = generated_image.to('cpu').detach().numpy()[0].transpose(1,2,0)
+        res_topology[i,j] = judge_topology(image)
+# res_topology
+#%%
+val = np.array(f_1)
+val_2D = val[res_topology==3]
+val_V = val[res_topology==1]
+val_nabra = val[res_topology==2]
+val_other = val[np.isnan(res_topology)]
+
+# fig, ax = plt.subplots(figsize=(8/2.54,5/2.54))
+fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+
+ax.plot(val_nabra.T[0]*-100,val_nabra.T[1]*-100, 'o', c='g', ms=0.8, label='nabra')
+ax.plot(val_V.T[0]*-100,val_V.T[1]*-100, 'o', c='b', ms=0.8, label='V')
+ax.plot(val_2D.T[0]*-100,val_2D.T[1]*-100, 'o', c='r', ms=0.8, label='2D')
+ax.plot(val_other.T[0]*-100,val_other.T[1]*-100, 'o', c='k', ms=0.8, label='other')
+# ax.plot([5,17],[197*1.03,197*1.03],'k--', linewidth=1)
+
+# pf_tmp = calc_pareto_front(np.array(f_1[-1]).reshape(s[1], s[2]))
+# plt.plot(pf_tmp[:,0]*14.63, pf_tmp[:,1]*-197, c='r', label='pareto front')
+
+# ax.set_yticks(np.arange(120,240+1,40))
+# ax.set_yticklabels(np.arange(120,240+1,40))
+# ax.set_ylim([120,240])
+ax.set_xlabel('Efficiency at PA (%)')
+ax.set_ylabel('Efficiency at PB (%)')
+
+# ax.text(5,197*1.05,'Constraint',color='b')
+# ax.text(10,205,'A',color='g')
+# ax.text(13,222,'B',color='g')
+# ax.text(16.5,227,'C',color='g')
+
+ax.legend(loc='best', fontsize=7)
+
+fig.tight_layout()
+# plt.savefig(f'{date}_all_population_w_topology_condition1.png', dpi=300, format='png')
+
+
+
+#%%
+val = np.array(g_1)
+val_2D = val[res_topology==3]
+val_V = val[res_topology==1]
+val_nabra = val[res_topology==2]
+val_other = val[np.isnan(res_topology)]
+
+# fig, ax = plt.subplots(figsize=(8/2.54,5/2.54))
+fig, ax = plt.subplots(figsize=(12/2.54,8/2.54))
+
+ax.plot(-val_nabra.T[0]*PA[0]+PA[0]*alpha,-val_nabra.T[1]*PA[0]+PB[0]*alpha, 'o', c='g', ms=0.8, label='nabra')
+ax.plot(-val_V.T[0]*PA[0]+PA[0]*alpha,-val_V.T[1]*PA[0]+PB[0]*alpha, 'o', c='b', ms=0.8, label='V')
+ax.plot(-val_2D.T[0]*PA[0]+PA[0]*alpha,-val_2D.T[1]*PA[0]+PB[0]*alpha, 'o', c='r', ms=0.8, label='2D')
+ax.plot(-val_other.T[0]*PA[0]+PA[0]*alpha,-val_other.T[1]*PA[0]+PB[0]*alpha, 'o', c='k', ms=0.8, label='other')
+
+
+ax.plot([140,220],[PB[0]*alpha,PB[0]*alpha],'b--', linewidth=1)
+ax.plot([PA[0]*alpha,PA[0]*alpha],[25,60],'b--', linewidth=1)
+# ax.plot((-np.array(g_1)[:,:,0]*PA[0]+PA[0]*alpha).flatten(),
+#          (-np.array(g_1)[:,:,1]*PA[0]+PB[0]*alpha).flatten(),
+#          'o', c='k', ms=1, label='All pop.')
+# ax.plot(-np.array(g_1)[-1,:,0]*PA[0]+PA[0]*alpha,
+#          -np.array(g_1)[-1,:,1]*PA[0]+PB[0]*alpha,
+#          '^', c='r', ms=2, label='Last pop.')
+# ax.plot(-np.array(g_1)[-1,15,0]*PA[0]+PA[0]*alpha,
+#          -np.array(g_1)[-1,15,1]*PA[0]+PB[0]*alpha,
+#          's', c='g', ms=5)
+
+# pf_tmp = calc_pareto_front(np.array(f_1[-1]).reshape(s[1], s[2]))
+
+
+# ax.set_yticks(np.arange(120,240+1,40))
+# ax.set_yticklabels(np.arange(120,240+1,40))
+# ax.set_ylim([120,240])
+ax.set_xlabel('Torque at P_A (Nm)')
+ax.set_ylabel('Torque at P_B (Nm)')
+
+ax.text(140,40*1.07 ,'Constraint P_B',color='b', fontsize=7)
+ax.text(197*1.05,26 ,'Constraint P_A',color='b', rotation=-90, fontsize=7)
+# ax.text(10,205,'A',color='g')
+# ax.text(13,222,'B',color='g')
+# ax.text(16.5,227,'C',color='g')
+
+ax.legend(loc='upper left',fontsize=7)
+
+fig.tight_layout()
+# plt.savefig(f'{date}_all_population_w_topology_condition1.png', dpi=300, format='png')
+
 
 #%%
 
-
+#%%
+params_optimization['verbose'] = False
+f = Optimize()
+# %timeit f.optimize(Ie_max='134', Vdc='650', torque1='197, 3000', torque2='40, 11000', efficiency1='20, 3500', efficiency2='20, 11000')
 
 #%%
 
+#%%
 
+#%%
+
+#%%
+#%%
 
 
 
