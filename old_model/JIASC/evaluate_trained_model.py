@@ -3,7 +3,10 @@
 # import csv
 import math
 # import multiprocessing
-# import datetime
+import datetime
+
+dt_now = datetime.datetime.now()
+date = dt_now.strftime('%Y%m%d')[2:]
 from pathlib import Path
 from tqdm import tqdm
 # import time
@@ -39,7 +42,7 @@ params_flux = {
     'pathmodel':None,
     # 'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305112012_pred_flux_brhc_swin_t_w_params_torque_MSE2\\',
     # 'trained_model': 'model_500_0.pt',
-    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_flux_brhc_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\2_brhc2\\2305162137_pred_flux_brhc_swin_t_w_params\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -65,7 +68,7 @@ params_ironloss = {
     'modelname':'swin_t',
     'typename':'transfer_learning',
     'pathmodel':None,
-    'base_dir_model':f'{base_dir}_result\\material\\1_brhc\\2305100546_pred_ironloss_brhc_swin_t_w_params\\',
+    'base_dir_model':f'{base_dir}_result\\material\\2_brhc2\\2305291414_pred_ironloss_brhc_swin_t_w_params_hysjou\\',
     'trained_model': 'model_100_0.pt',
     'batch_size': 128,
     # 'weight_decay': 0.001,
@@ -264,18 +267,18 @@ class RegressionIronLoss(nn.Module):
         self.batch_norm_list2 = nn.ModuleList(batch_norm_list2)
         self.out2 = nn.Linear(hidden_dim_before, output_dim2)
         ## pm_joule
-        hidden_dims3 = [hidden_dim_other3]*num_hidden_dims
-        hidden_dims3[-1] = hidden_dim_out3
-        linear_list3 = []
-        batch_norm_list3 = []
-        hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim+speed_dim
-        for hidden_dim in hidden_dims3:
-            linear_list3.append(nn.Linear(hidden_dim_before, hidden_dim))
-            batch_norm_list3.append(nn.BatchNorm1d(hidden_dim))
-            hidden_dim_before = hidden_dim
-        self.linear_list3 = nn.ModuleList(linear_list3)
-        self.batch_norm_list3 = nn.ModuleList(batch_norm_list3)
-        self.out3 = nn.Linear(hidden_dim_before, output_dim3)
+        # hidden_dims3 = [hidden_dim_other3]*num_hidden_dims
+        # hidden_dims3[-1] = hidden_dim_out3
+        # linear_list3 = []
+        # batch_norm_list3 = []
+        # hidden_dim_before = hidden_dim_init+current_dim+pm_material_dim+pm_temp_dim+speed_dim
+        # for hidden_dim in hidden_dims3:
+        #     linear_list3.append(nn.Linear(hidden_dim_before, hidden_dim))
+        #     batch_norm_list3.append(nn.BatchNorm1d(hidden_dim))
+        #     hidden_dim_before = hidden_dim
+        # self.linear_list3 = nn.ModuleList(linear_list3)
+        # self.batch_norm_list3 = nn.ModuleList(batch_norm_list3)
+        # self.out3 = nn.Linear(hidden_dim_before, output_dim3)
         ## activation
         if activation_type=='ReLU':
             self.activation = F.relu
@@ -286,8 +289,8 @@ class RegressionIronLoss(nn.Module):
 
     def forward(self, image, parameters, pm_material): # current: 2-dim
         x = self.forward1(image)
-        y1, y2, y3 = self.forward2(x, parameters, pm_material)
-        return y1, y2, y3 # hysteresis, joule, pm_joule
+        y1, y2 = self.forward2(x, parameters, pm_material)
+        return y1, y2#, y3 # hysteresis, joule, pm_joule
 
     def forward1(self, image):
         x = self.model_ft(image)
@@ -307,14 +310,14 @@ class RegressionIronLoss(nn.Module):
             x2 = f(x2) if i > 0 else f(x)
             x2 = bn(x2)
             x2 = self.activation(x2)
-        for i, (f, bn) in enumerate(zip(self.linear_list3, self.batch_norm_list3)):
-            x3 = f(x3) if i > 0 else f(x)
-            x3 = bn(x3)
-            x3 = self.activation(x3)
+        # for i, (f, bn) in enumerate(zip(self.linear_list3, self.batch_norm_list3)):
+        #     x3 = f(x3) if i > 0 else f(x)
+        #     x3 = bn(x3)
+        #     x3 = self.activation(x3)
         y1 = self.out1(x1)
         y2 = self.out2(x2)
-        y3 = self.out3(x3)
-        return y1, y2, y3
+        # y3 = self.out3(x3)
+        return y1, y2#, y3
 
 #%%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -471,6 +474,28 @@ valid_size = n_samples - train_size
 train_dataset, valid_dataset = torch.utils.data.random_split(dataset, [train_size, valid_size])
 
 #%%
+# indices = range(0, len(valid_dataset), 100)
+
+# graph_A = []
+# graph_B = []
+
+# for i in tqdm(indices):
+# # for data in tqdm(valid_dataset):
+#     # data = dataset[i]
+#     data = valid_dataset[i]
+#     img = data[0].to(device).unsqueeze(0)
+#     graph_A.append(model_flux.forward1(img).sum())
+#     graph_B.append(model_ironloss.forward1(img).sum())
+
+# graph_A = [float(i) for i in graph_A]
+# graph_B = [float(i) for i in graph_B]
+# plt.hist(graph_A)
+# plt.show()
+# plt.hist(graph_B)
+# plt.show()
+
+
+#%%
 preds_psi_dq_all = []
 data_psi_dq_all = []
 preds_ironloss_all = []
@@ -485,7 +510,7 @@ data_torque_all2 = []
 data_idq_all = []
 
 # indices = range(0, len(dataset), 1000)
-indices = range(0, len(valid_dataset), 1000)
+indices = range(0, len(valid_dataset), 100)
 for i in tqdm(indices):
 # for data in tqdm(valid_dataset):
     # data = dataset[i]
@@ -551,19 +576,65 @@ data_torque_all2 = np.array(data_torque_all2)
 
 data_idq_all = np.array(data_idq_all)
 
+#%%
+plt.rcParams['font.family'] = 'Times New Roman'
+plt.rcParams['font.size'] = 8
 
+plt.rcParams["mathtext.fontset"] = 'stix'
+
+plt.rcParams['xtick.direction'] = 'in'
+plt.rcParams['ytick.direction'] = 'in'
+plt.rcParams['axes.linewidth'] = 1.0
+plt.rcParams['axes.grid'] = True
+
+plt.rcParams['legend.fancybox'] = False
+plt.rcParams['legend.framealpha'] = 1
+plt.rcParams['legend.edgecolor'] = 'black'
+
+plt.rcParams['axes.grid'] = False
+plt.rcParams['xtick.bottom'] = False
+plt.rcParams['ytick.left'] = False
+plt.rcParams['ytick.right'] = False
 # %%
+pos = [
+    [-0.2,-2.3],[-0.5,-2.2],[0.5,-1.5],[0.8,-1.2],
+]
+titles = [
+    'd-axis flux', 'q-axis flux', 'hysteresis loss', 'eddy current loss'
+]
+check = True
+i = 0
+fig, axes = plt.subplots(1,4,figsize=(16/2.54,5/2.54))
+
 preds_all = np.hstack((preds_psi_dq_all,preds_ironloss_all)).T
 data_all = np.hstack((data_psi_dq_all,data_ironloss_all)).T
 # p = preds_psi_dq_all[:,0]
 # d = data_psi_dq_all[:,0]
 for p, d in zip(preds_all, data_all):
-    plt.plot(p, d, 'bo', ms=3)
-    plt.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
+    # plt.plot(p, d, 'bo', ms=3)
+    # plt.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
+    # r2 = r2_score(d, p)
+    # mse = mean_squared_error(d, p)
+    # plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
+    # plt.show()
+    ax = axes[i]
+    ax.plot(p, d, 'bo', ms=1)
+    ax.plot([d.min(), d.max()], [d.min(), d.max()], 'k--')
     r2 = r2_score(d, p)
     mse = mean_squared_error(d, p)
-    plt.title(f'r2: {round(r2, 2)}, mse: {round(mse,3)}')
-    plt.show()
+    ax.text(pos[i][0],pos[i][1],'$r^2$: {:.03f}\nMSE: {:.03f}'.format(round(r2, 3), round(mse, 3)))
+    ax.set_title(titles[i])
+    ax.set_xlabel('predicted (-)')
+    if check:
+        ax.set_ylabel('analyzed (-)')
+        check = False
+    # fig.tight_layout()
+    # plt.savefig(f'figure\\{date}_all_population_vs_FEA_gen{n_gen+1}_paper.png', dpi=300, format='png')
+    # plt.show()
+    i += 1
+fig.tight_layout()
+plt.savefig(f'fig\\{date}_valid_loss_kenkyukai.png', dpi=300, format='png')
+
 
 #%%
 df_sp = pd.read_csv('..\\_data_motor\\dataset_scaling_parameter_all.csv')
