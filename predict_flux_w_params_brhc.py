@@ -38,7 +38,7 @@ params = {
     'batch_size': 128,
     # 'weight_decay': 0.001,
     # 'epochs_optuna': 20,
-    'epochs_check': 500,
+    'epochs_check': 100,
     'save_every': 10,
     'hidden_dim_init': 4,
     'num_hidden_dims': 4,
