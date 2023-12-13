@@ -50,7 +50,7 @@ params = {
     'hidden_dim_out': 50,
     'hidden_dim_out2': 50,
     # 'hidden_dim_out3': 50,
-    'times': 1,
+    'times': 5,
 }
 
 

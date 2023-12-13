@@ -48,7 +48,7 @@ params = {
     # 'learning_rate': 0.004,
     'hidden_dim_out': 50,
     'hidden_dim_out2': 50,
-    'times': 1,
+    'times': 5,
 }
 
 #==============================
@@ -395,9 +395,8 @@ def main(modelname, typename, pathmodel=None):
                 valid_loss2,
                 elapsed_time
             ])
-            if (epoch+1) % save_every == 0: 
-                save_model(model.state_dict(), epoch+1, t)
-                save_result(results, t)
+            if (epoch+1) % save_every == 0: save_model(model.state_dict(), epoch+1, t)
+        save_result(results, epoch+1, t)
 
 if __name__=="__main__":
     import argparse
