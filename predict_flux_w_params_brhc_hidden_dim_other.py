@@ -35,8 +35,8 @@ import prediction_model
 def result_name(modelname):
     return f'pred_flux_brhc_{modelname}_w_params_hidden_dim_other'
 
-hidden_dim_other_list = [4, 8, 12, 16]
-hidden_dim_other2_list = [4, 8, 12, 16]
+# hidden_dim_other_list = [4, 8, 12, 16]
+# hidden_dim_other2_list = [4, 8, 12, 16]
 # ==========================================================
 
 params = {
@@ -312,7 +312,7 @@ def valid_step(x1, x2, x3, t1, t2, model):
     loss2 = compute_loss(t2, preds[1])
     return (loss1, loss2), preds
 
-def main(modelname, typename, pathmodel=None):
+def main(modelname, typename, pathmodel=None, hidden_dim_other_list=None, hidden_dim_other2_list=None):
     params['modelname'] = modelname
     params['typename'] = typename
     params['pathmodel'] = pathmodel
@@ -432,6 +432,6 @@ if __name__=="__main__":
     params_data['image_size'] = 224 if args.modelname in vit_list else 256
     params['result_name'] = result_name(args.modelname)
     print(params['result_name'])
-    main(args.modelname, args.typename, args.pathmodel)
+    main(args.modelname, args.typename, args.pathmodel, args.hidden_dim_other_list, args.hidden_dim_other2_list)
 
 
