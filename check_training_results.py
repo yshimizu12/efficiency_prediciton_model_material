@@ -67,6 +67,7 @@ for dir_1_list, name_1_list, label, header in zip(dir_1_list_all, name_1_list_al
         params = pd.read_pickle(params_file)
         print(params)
         res_tail = np.array([])
+        n_try = 5 if name_ != "vit_l_16" else 2
         for i in range(n_try):
             # result.csvを読み込む
             pd_res = pd.read_csv(dir_results / dir_1 / dir_ / f"result_{i}.csv", names=header)
