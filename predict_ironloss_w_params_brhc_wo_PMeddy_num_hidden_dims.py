@@ -437,7 +437,7 @@ def main(modelname, typename, pathmodel=None, num_hidden_dims_list=None):
                     # valid_loss3,
                     elapsed_time
                 ])
-                if (epoch+1) % save_every == 0: save_model(model.state_dict(), epoch+1, t, hidden_dim_other, hidden_dim_other2)
+                if (epoch+1) % save_every == 0: save_model(model.state_dict(), epoch+1, t, num_hidden_dims)
             save_result(results, epoch+1, t, num_hidden_dims)
 
 if __name__=="__main__":
