@@ -2,6 +2,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from pathlib import Path
 from pprint import pprint
 
@@ -42,6 +43,7 @@ for dir_base, label, header in zip(dir_base_all, labels, header_all):
     display(df_base)
     df_base_list.append(df_base)
 #%%
+################ モデル比較 ################
 dir_1 = Path("1_comp_model")
 dir_1_list_flux = [p.name for p in dir_results.glob(str(dir_1 / "*")) if p.is_dir() if p.name.split("_")[2]=='flux']
 dir_1_list_ironloss = [p.name for p in dir_results.glob(str(dir_1 / "*")) if p.is_dir() if p.name.split("_")[2]=='ironloss']
@@ -103,9 +105,125 @@ for df_mean, df_std, df_base, cols, label, header in zip(df_1_mean_list, df_1_st
         plt.show()
 
 #%%
+################ 隠れ層の次元数 ################
+dir_2 = Path("2_comp_hidden_dim_other")
+dir_2_list_flux = [p.name for p in dir_results.glob(str(dir_2 / "*")) if p.is_dir() if p.name.split("_")[1]=='flux']
+dir_2_list_ironloss = [p.name for p in dir_results.glob(str(dir_2 / "*")) if p.is_dir() if p.name.split("_")[1]=='ironloss']
+dir_2_list_all = [dir_2_list_flux, dir_2_list_ironloss]
+pprint(dir_2_list_all)
+hidden_dim_other = [4,8,12,16]
+hidden_dim_other_list = [[x, y] for x in hidden_dim_other for y in hidden_dim_other]
+#%%
+df_2_mean_list = []
+df_2_std_list = []
+for dir_2_list, label, header in zip(dir_2_list_all, labels, header_all):
+    print(label)
+    dir_ = dir_2_list[0]
+    # params.pklを読み込む
+    params_file = dir_results / dir_2 / dir_ / "params.pkl"
+    params = pd.read_pickle(params_file)
+    print(params)
+    mean_list = []
+    std_list = []
+    for hidden_dim_other in hidden_dim_other_list:
+        res_tail = np.array([])
+        n_try = 5
+        for i in range(n_try):
+            # result.csvを読み込む
+            try:
+                pd_res = pd.read_csv(dir_results / dir_2 / dir_ / f"result_{i}_{hidden_dim_other[0]}_{hidden_dim_other[1]}.csv", names=header)
+                # display(pd_res.head())
+                # display(pd_res.tail(1))
+                res_tail = np.append(res_tail, pd_res.tail(1).values)
+            except:
+                res_tail = np.append(res_tail, np.ones(6)*np.nan)
+        res_tail = res_tail.reshape(n_try, -1)[:,1:-1]
+        mean_list.append(res_tail.mean(axis=0))
+        std_list.append(res_tail.std(axis=0))
+        # display(pd.DataFrame(res_tail, columns=header[1:-1]))
+    index_hd = [f"{hd[0]}_{hd[1]}" for hd in hidden_dim_other_list]
+    df_mean = pd.DataFrame(mean_list, columns=header[1:-1], index=index_hd)
+    df_std = pd.DataFrame(std_list, columns=header[1:-1], index=index_hd)
+    display(df_mean)
+    display(df_std)
+    df_2_mean_list.append(df_mean)
+    df_2_std_list.append(df_std)
+
+# %%
+cols_list = [["valid_loss_psi_d", "valid_loss_psi_q"], ["valid_loss_hysteresis", "valid_loss_joule"]]
+for df_mean, df_std, df_base, cols, label, header in zip(df_2_mean_list, df_2_std_list, df_base_list, cols_list, labels, header_all):
+    print(label)
+    display(df_mean)
+    for col in cols:
+        plt.figure()
+        plt.bar(
+            df_mean.index.values,
+            df_mean[col].values,
+            yerr=df_std[col].values,
+            capsize=5
+        )
+        plt.ylabel("Valid Loss (-)")
+        plt.title(col)
+        plt.show()
 
 
 #%%
+def create_heatmap_data(column):
+    heatmap_data = df_mean.pivot("y", "x", column)
+    return heatmap_data
+
+cols_list = [["valid_loss_psi_d", "valid_loss_psi_q"], ["valid_loss_hysteresis", "valid_loss_joule"]]
+for df_mean, df_std, df_base, cols, label, header in zip(df_2_mean_list, df_2_std_list, df_base_list, cols_list, labels, header_all):
+    print(label)
+    display(df_mean)
+
+    df_mean['x'] = df_mean.index.str.split('_').str[0].astype(int)
+    df_mean['y'] = df_mean.index.str.split('_').str[1].astype(int)
+
+    for col in cols:
+        heatmap_data = create_heatmap_data(col)
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(heatmap_data, annot=True, fmt=".3f", cmap="coolwarm_r")
+        plt.title(f"Heatmap for {col}")
+        plt.show()
+
+#%%
+cols_list = [["valid_loss_psi_d", "valid_loss_psi_q"], ["valid_loss_hysteresis", "valid_loss_joule"]]
+for df_mean, df_std, df_base, cols, label, header in zip(df_2_mean_list, df_2_std_list, df_base_list, cols_list, labels, header_all):
+    print(label)
+    display(df_mean)
+
+    df_mean['x'] = df_mean.index.str.split('_').str[0].astype(int)
+    df_mean['y'] = df_mean.index.str.split('_').str[1].astype(int)
+
+    heatmap_data = heatmap_data*0
+    title = []
+    for col in cols:
+        heatmap_data += create_heatmap_data(col)
+        title.append('_'.join(col.split('_')[2:]))
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(heatmap_data, annot=True, fmt=".3f", cmap="coolwarm_r")
+    plt.title(f"Heatmap for {'+'.join(title)}")
+    plt.show()
+
+#%%
+cols_list = [["train_loss_psi_d", "train_loss_psi_q"], ["train_loss_hysteresis", "train_loss_joule"]]
+for df_mean, df_std, df_base, cols, label, header in zip(df_2_mean_list, df_2_std_list, df_base_list, cols_list, labels, header_all):
+    print(label)
+    display(df_mean)
+
+    df_mean['x'] = df_mean.index.str.split('_').str[0].astype(int)
+    df_mean['y'] = df_mean.index.str.split('_').str[1].astype(int)
+
+    heatmap_data = heatmap_data*0
+    title = []
+    for col in cols:
+        heatmap_data += create_heatmap_data(col)
+        title.append('_'.join(col.split('_')[2:]))
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(heatmap_data, annot=True, fmt=".3f", cmap="coolwarm_r")
+    plt.title(f"Heatmap for {'+'.join(title)}")
+    plt.show()
 
 #%%
 
