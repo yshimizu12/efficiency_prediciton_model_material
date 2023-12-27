@@ -301,5 +301,106 @@ for df_mean, df_std, df_base, cols, label, header in zip(df_3_mean_list, df_3_st
         plt.title(col)
         plt.show()
 
+#%%
+################ 隠れ層第一層の次元 ################
+dir_4 = Path("4_comp_hidden_dim_init")
+dir_4_list_flux = [p.name for p in dir_results.glob(str(dir_4 / "*")) if p.is_dir() if p.name.split("_")[1]=='flux']
+dir_4_list_ironloss = [p.name for p in dir_results.glob(str(dir_4 / "*")) if p.is_dir() if p.name.split("_")[1]=='ironloss']
+dir_4_list_all = [dir_4_list_flux, dir_4_list_ironloss]
+pprint(dir_4_list_all)
+num_hidden_dims_list = [2,4,6,8,10,12]
+#%%
+df_4_mean_list = []
+df_4_std_list = []
+for dir_4_list, label, header in zip(dir_4_list_all, labels, header_all):
+    print(label)
+    dir_ = dir_4_list[0]
+    # params.pklを読み込む
+    params_file = dir_results / dir_4 / dir_ / "params.pkl"
+    params = pd.read_pickle(params_file)
+    print(params)
+    mean_list = []
+    std_list = []
+    for num_hidden_dims in num_hidden_dims_list:
+        res_tail = np.array([])
+        n_try = 5
+        for i in range(n_try):
+            # result.csvを読み込む
+            try:
+                pd_res = pd.read_csv(dir_results / dir_4 / dir_ / f"result_{i}_{num_hidden_dims}.csv", names=header)
+                # display(pd_res.head())
+                # display(pd_res.tail(1))
+                res_tail = np.append(res_tail, pd_res.tail(1).values)
+            except:
+                res_tail = np.append(res_tail, np.ones(6)*np.nan)
+        res_tail = res_tail.reshape(n_try, -1)[:,1:-1]
+        mean_list.append(res_tail.mean(axis=0))
+        std_list.append(res_tail.std(axis=0))
+        # display(pd.DataFrame(res_tail, columns=header[1:-1]))
+    df_mean = pd.DataFrame(mean_list, columns=header[1:-1], index=num_hidden_dims_list)
+    df_std = pd.DataFrame(std_list, columns=header[1:-1], index=num_hidden_dims_list)
+    display(df_mean)
+    display(df_std)
+    df_4_mean_list.append(df_mean)
+    df_4_std_list.append(df_std)
+
+# %%
+cols_list = [["valid_loss_psi_d", "valid_loss_psi_q"], ["valid_loss_hysteresis", "valid_loss_joule"]]
+for df_mean, df_std, df_base, cols, label, header in zip(df_4_mean_list, df_4_std_list, df_base_list, cols_list, labels, header_all):
+    print(label)
+    display(df_mean)
+    for col in cols:
+        plt.figure()
+        plt.bar(
+            df_mean.index.values,
+            df_mean[col].values,
+            yerr=df_std[col].values,
+            capsize=5
+        )
+        plt.ylabel("Valid Loss (-)")
+        plt.title(col)
+        plt.show()
+
+cols_list = [["train_loss_psi_d", "train_loss_psi_q"], ["train_loss_hysteresis", "train_loss_joule"]]
+for df_mean, df_std, df_base, cols, label, header in zip(df_4_mean_list, df_4_std_list, df_base_list, cols_list, labels, header_all):
+    print(label)
+    display(df_mean)
+    for col in cols:
+        plt.figure()
+        plt.bar(
+            df_mean.index.values,
+            df_mean[col].values,
+            yerr=df_std[col].values,
+            capsize=5
+        )
+        plt.ylabel("Valid Loss (-)")
+        plt.title(col)
+        plt.show()
+
+#%%
+num_hidden_dims_best = [6,8]
+for dir_4_list, label, header, num_hidden_dims in zip(dir_4_list_all, labels, header_all, num_hidden_dims_best):
+    print(label)
+    dir_ = dir_4_list[0]
+    # params.pklを読み込む
+    # params_file = dir_results / dir_4 / dir_ / "params.pkl"
+    # params = pd.read_pickle(params_file)
+    # print(params)
+    # res_tail = np.array([])
+    n_try = 5
+    for i in range(n_try):
+        pd_res = pd.read_csv(dir_results / dir_4 / dir_ / f"result_{i}_{num_hidden_dims}.csv", names=header)
+        plt.figure()
+        plt.plot(
+            pd_res.iloc[:,0],
+            pd_res.iloc[:,1:-1],
+            label=pd_res.columns[1:-1],
+        )
+        plt.ylabel("Loss (-)")
+        plt.title(f"seed={i}")
+        plt.legend()
+        plt.show()
+
+
 
 # %%
